@@ -43,6 +43,7 @@ clean:
 	rm -f sha1_tests
 	rm -f sha1_cuda_test sha1_cuda_kernel.cubin
 	rm -f a.out
+	rm -f cpu_miner
 
 
 #
@@ -51,6 +52,9 @@ clean:
 
 sha1_tests:	aad_sha1_cpu_tests.c aad_sha1.h aad_data_types.h aad_utilities.h makefile
 	cc -march=native -Wall -Wshadow -Werror -O3 $< -o $@
+
+sha1_miner: aad_sha1_cpu_miner.c
+	cc -march=native -Wall aad_sha1_cpu_miner.c -o cpu_miner
 
 sha1_cuda_test:	aad_sha1_cuda_test.c sha1_cuda_kernel.cubin aad_sha1.h aad_data_types.h aad_utilities.h aad_cuda_utilities.h makefile
 	cc -march=native -Wall -Wshadow -Werror -O3 $< -o $@ -lcuda

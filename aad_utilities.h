@@ -10,6 +10,8 @@
 #ifndef AAD_UTILITIES
 #define AAD_UTILITIES
 
+#include <time.h>
+
 //
 // measure elapsed and wall times --- requires <time.h>
 //

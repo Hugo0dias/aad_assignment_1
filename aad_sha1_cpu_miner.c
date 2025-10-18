@@ -1,0 +1,71 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "aad_data_types.h"
+#include "aad_sha1_cpu.h"
+#include "aad_utilities.h"
+#include "aad_vault.h"
+
+int main(void)
+{
+    u32_t coin[14];    // 14 * 4bytes = 56 bytes -> tamanho da moeda
+    u32_t hash[5];     // 5  * 4bytes = 20 bytes -> tamanho hash sha1
+    /*
+    coin -> 14 caixas grandes com 4 moedas cada
+    msg  -> ignora a caixas grandes e pega moeda a moeda (byte a byte) -> 8bits = 1byte
+    */
+    u08_t *msg = (u08_t *)coin;
+
+    //double elapsed;
+    unsigned long long n_attempts = 0ULL;
+
+    memset(msg, 0, 56);    // vai ao end. memoria msg e mete a 0s 56 bytes (limpa lixo)
+
+    /*
+    strcpy num array de u08_t é alinhado como u32_t, o SHA1 CPU espera os bytes organizados com ^3 (endianness)
+    strcpy((char *)msg, "DETI coin 2 ");  // não respeita a troca de endian
+    Por isso o save_coin() vê “DIET” em vez de “DETI”
+    */
+
+    // reserva 1os 12 bytes para o cabeçalho fixo da moeda
+    const char template[12] = "DETI coin 2 ";    
+    for (int i = 0; i < 12; i++)
+        msg[i ^ 3] = (u08_t)template[i];    // aplica XOR 3 em cada byte
+    msg[54 ^ 3] = '\n';   // penúltimo byte é \n
+    msg[55 ^ 3] = 0x80;    // último byte é padding
+
+    printf("Starting CPU miner (without SIMD)...\n");
+
+    //time_measurement(); // t0
+    while(1) {
+        // gerar nova moeda (incrementar nonce)
+        // soma 1 ao byte 12, se overflow, soma 1 ao byte 13, e assim sucessivamente
+        for (int i = 12; i < 54; i++) {
+            if (++msg[i] != 0) break;
+        }
+
+        // calcular hash sha1
+        sha1(coin, hash);
+        n_attempts++;
+
+        // verificar se a hash é válida, u -> unsigned -> não negativo
+        if (hash[0] == 0xAAD20250u)
+        {
+            printf("\033[1;32m Found DETI coin after %llu attempts!\033[0m\n", n_attempts);
+            save_coin(coin);
+        } 
+        /*else {
+            printf("Attempt %llu: hash 0x%08X%08X%08X%08X%08X is not a valid DETI coin.\n",
+                   n_attempts,
+                   hash[0], hash[1], hash[2], hash[3], hash[4]);
+        }*/
+
+        /*if (n_attempts % 1000000ULL == 0ULL) {
+            time_measurement();       // t1
+            elapsed = wall_time_delta(); // diferença entre t1 e t0
+            printf("%.1f Mhashes/s\n", n_attempts / (elapsed * 1e6));
+        }*/
+    }
+
+    return 0;
+}
