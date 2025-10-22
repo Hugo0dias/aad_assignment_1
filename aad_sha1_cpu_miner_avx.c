@@ -83,7 +83,6 @@ int main(void)
                 if (elapsed > 0.0)
                     printf("%.3f Mhashes/s\n", (double)n_attempts / (elapsed * 1e6));
                 printf("\033[1;32m Found DETI coin after %llu attempts (lane %d)!\033[0m\n", n_attempts + (unsigned long long)lane + 1ULL, lane);
-                // opcional: break / sair se quiseres parar após encontrar
             }
         }
 
