@@ -56,6 +56,9 @@ sha1_tests:	aad_sha1_cpu_tests.c aad_sha1.h aad_data_types.h aad_utilities.h mak
 sha1_miner: aad_sha1_cpu_miner.c
 	cc -march=native -Wall aad_sha1_cpu_miner.c -o cpu_miner
 
+sha1_miner_avx: aad_sha1_cpu_miner_avx.c
+	cc -march=native -Wall aad_sha1_cpu_miner_avx.c -o cpu_miner_avx
+
 sha1_cuda_test:	aad_sha1_cuda_test.c sha1_cuda_kernel.cubin aad_sha1.h aad_data_types.h aad_utilities.h aad_cuda_utilities.h makefile
 	cc -march=native -Wall -Wshadow -Werror -O3 $< -o $@ -lcuda
 
