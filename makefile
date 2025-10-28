@@ -62,6 +62,9 @@ sha1_miner_avx: aad_sha1_cpu_miner_avx.c
 sha1_cuda_test:	aad_sha1_cuda_test.c sha1_cuda_kernel.cubin aad_sha1.h aad_data_types.h aad_utilities.h aad_cuda_utilities.h makefile
 	cc -march=native -Wall -Wshadow -Werror -O3 $< -o $@ -lcuda
 
+sha1_cuda_miner: aad_sha1_cuda_miner.cu
+	nvcc -O3 -arch=sm_75 -o cuda_miner aad_sha1_cuda_miner.cu aad_sha1_cuda_kernel.cu -I.
+
 
 #
 # compile the CUDA kernels
