@@ -44,6 +44,9 @@ clean:
 	rm -f sha1_cuda_test sha1_cuda_kernel.cubin
 	rm -f a.out
 	rm -f cpu_miner
+	rm -f sha1_tests sha1_cuda_test sha1_cuda_kernel.cubin cuda_miner
+	rm -f deti_miner deti_miner.o deti_miner_kernel.cubin
+	rm -f *.o a.out
 
 
 #
@@ -65,10 +68,18 @@ sha1_cuda_test:	aad_sha1_cuda_test.c sha1_cuda_kernel.cubin aad_sha1.h aad_data_
 sha1_cuda_miner: aad_sha1_cuda_miner.cu
 	nvcc -O3 -arch=sm_75 -o cuda_miner aad_sha1_cuda_miner.cu aad_sha1_cuda_kernel.cu -I.
 
+# nome do binário final
+all: deti_miner
 
-#
-# compile the CUDA kernels
-#
+# compilar o host program
+deti_miner: deti_miner.o deti_miner_kernel.cubin
+	$(CC) -o $@ deti_miner.o -lcuda -lcudart
 
-sha1_cuda_kernel.cubin:			aad_sha1_cuda_kernel.cu aad_sha1.h makefile
+# compilar o código C do host
+deti_miner.o: deti_miner.c aad_data_types.h aad_utilities.h aad_vault.h aad_cuda_utilities.h
+	$(CC) -c $< -O3 -o $@
+
+# compilar o kernel CUDA para .cubin
+deti_miner_kernel.cubin: deti_miner_kernel.cu aad_sha1.h aad_data_types.h
 	nvcc -arch=$(CUDA_ARCH) --compiler-options -O2,-Wall -I$(CUDA_DIR)/include --cubin $< -o $@
+
