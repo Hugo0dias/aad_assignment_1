@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -77,6 +76,7 @@ int main(void)
                     coin_lane[i] = coin_u32[i * N_LANES + lane];
 
                 save_coin(coin_lane);
+		        save_coin(NULL);
 
                 time_measurement();
                 elapsed = wall_time_delta();

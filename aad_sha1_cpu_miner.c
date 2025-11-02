@@ -53,6 +53,7 @@ int main(void)
         {
             printf("\033[1;32m Found DETI coin after %llu attempts!\033[0m\n", n_attempts);
             save_coin(coin);
+	        save_coin(NULL);
         } 
         /*else {
             printf("Attempt %llu: hash 0x%08X%08X%08X%08X%08X is not a valid DETI coin.\n",
