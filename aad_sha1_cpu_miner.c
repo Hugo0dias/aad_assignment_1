@@ -36,7 +36,11 @@ int main(void)
 
     printf("Starting CPU miner (without SIMD)...\n");
 
-    //time_measurement(); // t0
+    double total_time = 0.0;
+    unsigned long long total_hashes = 0ULL;
+
+    time_measurement(); // inicializa
+
     while(1) {
         // gerar nova moeda (incrementar nonce)
         // soma 1 ao byte 12, se overflow, soma 1 ao byte 13, e assim sucessivamente
@@ -55,17 +59,17 @@ int main(void)
             save_coin(coin);
 	        save_coin(NULL);
         } 
-        /*else {
-            printf("Attempt %llu: hash 0x%08X%08X%08X%08X%08X is not a valid DETI coin.\n",
-                   n_attempts,
-                   hash[0], hash[1], hash[2], hash[3], hash[4]);
-        }*/
+        
+        if (n_attempts % 1000000ULL == 0ULL) {
+            time_measurement();
+            double block_time = wall_time_delta(); // tempo do bloco
+            total_time += block_time;
+            total_hashes += 1000000ULL;
 
-        /*if (n_attempts % 1000000ULL == 0ULL) {
-            time_measurement();       // t1
-            elapsed = wall_time_delta(); // diferença entre t1 e t0
-            printf("%.1f Mhashes/s\n", n_attempts / (elapsed * 1e6));
-        }*/
+            double avg_rate = (total_hashes / total_time) / 1e6;
+            printf("Último bloco: %.3f s (%.2f Mhash/s) | Média: %.2f Mhash/s\n",
+                block_time, 1.0 / block_time, avg_rate);
+        }
     }
 
     return 0;

@@ -38,7 +38,11 @@ int main(void)
 
     // coin_lane = 1 coin temp
     u32_t coin_lane[14];
-    time_measurement(); // t0
+    
+    double total_time = 0.0;
+    unsigned long long total_hashes = 0ULL;
+
+    time_measurement(); // inicializa
 
     while(1) {
         // incrementa nonces (cada lane independentemente)
@@ -76,20 +80,22 @@ int main(void)
                     coin_lane[i] = coin_u32[i * N_LANES + lane];
 
                 save_coin(coin_lane);
+                printf("\033[1;32m Found DETI coin after %llu attempts!\033[0m\n", n_attempts);
 		        save_coin(NULL);
-
-                time_measurement();
-                elapsed = wall_time_delta();
-                if (elapsed > 0.0)
-                    printf("%.3f Mhashes/s\n", (double)n_attempts / (elapsed * 1e6));
-                printf("\033[1;32m Found DETI coin after %llu attempts (lane %d)!\033[0m\n", n_attempts + (unsigned long long)lane + 1ULL, lane);
             }
         }
 
         n_attempts += N_LANES;
-        if (n_attempts > 8996895643+1)
-        {
-            break;
+
+        if (n_attempts % 1000000ULL == 0ULL) {
+            time_measurement();
+            double block_time = wall_time_delta(); // tempo do bloco
+            total_time += block_time;
+            total_hashes += 1000000ULL;
+
+            double avg_rate = (total_hashes / total_time) / 1e6;
+            printf("Último bloco: %.3f s (%.2f Mhash/s) | Média: %.2f Mhash/s\n",
+                block_time, 1.0 / block_time, avg_rate);
         }
         
     }
