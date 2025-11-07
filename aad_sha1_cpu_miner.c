@@ -6,8 +6,22 @@
 #include "aad_utilities.h"
 #include "aad_vault.h"
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    double time_limit = 0.0; // 0 = sem limite
+
+    if (argc > 1) {
+        time_limit = atof(argv[1]); // converte string -> double
+        if (time_limit <= 0.0) {
+            printf("Invalid time value. Usage: %s [time_in_seconds]\n", argv[0]);
+            return 1;
+        }
+        printf("Running for %.2f seconds...\n", time_limit);
+    } else {
+        printf("No time limit — mining inf.\n");
+    }
+
+
     u32_t coin[14];    // 14 * 4bytes = 56 bytes -> tamanho da moeda
     u32_t hash[5];     // 5  * 4bytes = 20 bytes -> tamanho hash sha1
     /*
@@ -16,7 +30,6 @@ int main(void)
     */
     u08_t *msg = (u08_t *)coin;
 
-    //double elapsed;
     unsigned long long n_attempts = 0ULL;
 
     memset(msg, 0, 56);    // vai ao end. memoria msg e mete a 0s 56 bytes (limpa lixo)
@@ -36,16 +49,16 @@ int main(void)
 
     printf("Starting CPU miner (without SIMD)...\n");
 
-    double total_time = 0.0;
-    unsigned long long total_hashes = 0ULL;
-
+    double elapsed = 0.0;
     time_measurement(); // inicializa
 
     while(1) {
         // gerar nova moeda (incrementar nonce)
         // soma 1 ao byte 12, se overflow, soma 1 ao byte 13, e assim sucessivamente
         for (int i = 12; i < 54; i++) {
-            if (++msg[i] != 0) break;
+            if (++msg[i] == '\n')  // se for 0x0A, incrementa again
+                ++msg[i];
+            if (msg[i] != 0) break;
         }
 
         // calcular hash sha1
@@ -60,15 +73,14 @@ int main(void)
 	        save_coin(NULL);
         } 
         
-        if (n_attempts % 1000000ULL == 0ULL) {
-            time_measurement();
-            double block_time = wall_time_delta(); // tempo do bloco
-            total_time += block_time;
-            total_hashes += 1000000ULL;
+        time_measurement();                 // mede nova amostra
+        elapsed += wall_time_delta();       // acumula tempo decorrido
 
-            double avg_rate = (total_hashes / total_time) / 1e6;
-            printf("Último bloco: %.3f s (%.2f Mhash/s) | Média: %.2f Mhash/s\n",
-                block_time, 1.0 / block_time, avg_rate);
+        if (time_limit > 0.0 && elapsed >= time_limit) {
+            printf("\n=== Tempo limite atingido (%.2f / %.2f) ===\n", elapsed, time_limit);
+            printf("Tentativas totais: %llu\n", n_attempts);
+            printf("Taxa média: %.2f Mhash/s\n", (n_attempts / elapsed) / 1e6);
+            break;
         }
     }
 

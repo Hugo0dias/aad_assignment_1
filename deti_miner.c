@@ -44,7 +44,7 @@ static void mine_deti_coins(u64_t start_nonce, int n_blocks)
     initialize_cuda(&cd);
 
     coins_host = (u32_t *)cd.host_data[0];
-    coins_host[0] = 1; // índice livre inicial
+    coins_host[0] = 1; // contador de coins
     host_to_device_copy(&cd, 0);
 
     // definir dimensões de grelha e bloco
@@ -65,7 +65,7 @@ static void mine_deti_coins(u64_t start_nonce, int n_blocks)
     device_to_host_copy(&cd, 0);
 
     u32_t used = coins_host[0];
-    // 1 coin ocupa = 1 + (numero * 14)
+    // 1 coin ocupa = 1 (contador) + (numero * 14), moeda ocupa 14 words
     u32_t n_coins = (used - 1) / 14;
     printf("Kernel run (%.6f s): %u coin(s) found\n", kernel_time, n_coins);
 

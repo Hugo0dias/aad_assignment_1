@@ -13,10 +13,22 @@ static inline int prefix_matches_aad2025(u32_t first_word) {
     return first_word == 0xAAD20250u; // cheque exacto do word H0 (mais seguro)
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    double time_limit = 0.0; // 0 = sem limite
+
+    if (argc > 1) {
+        time_limit = atof(argv[1]); // converte string -> double
+        if (time_limit <= 0.0) {
+            printf("Invalid time value. Usage: %s [time_in_seconds]\n", argv[0]);
+            return 1;
+        }
+        printf("Running for %.2f seconds...\n", time_limit);
+    } else {
+        printf("No time limit — mining inf.\n");
+    }
+
     unsigned long long n_attempts = 0ULL;
-    double elapsed;
 
     u08_t msg[N_LANES * 56]; // N_LANES mensagens de 56 bytes cada
     v4si coin[14];           // cada element é um vector de 4 lanes (u32) -> 14*4bytes = 56 bytes * 4 = 224 Bytes
@@ -39,17 +51,17 @@ int main(void)
     // coin_lane = 1 coin temp
     u32_t coin_lane[14];
     
-    double total_time = 0.0;
-    unsigned long long total_hashes = 0ULL;
-
-    time_measurement(); // inicializa
+    double elapsed = 0.0;
+    time_measurement();
 
     while(1) {
         // incrementa nonces (cada lane independentemente)
         for(int lane=0; lane<N_LANES; lane++) {
             // 53 - 12 + 1 = 42 bytes de nonce
             for(int i=0;i<42;i++) {
-                if (++nonce[lane][i] != 0) break; // carry
+                if (++nonce[lane][i] == '\n')  // se for 0x0A, incrementa again
+                    ++nonce[lane][i];
+                if (nonce[lane][i] != 0) break; // carry
             }
         }
 
@@ -87,15 +99,14 @@ int main(void)
 
         n_attempts += N_LANES;
 
-        if (n_attempts % 1000000ULL == 0ULL) {
-            time_measurement();
-            double block_time = wall_time_delta(); // tempo do bloco
-            total_time += block_time;
-            total_hashes += 1000000ULL;
+        time_measurement();                 // mede nova amostra
+        elapsed += wall_time_delta();       // acumula tempo decorrido
 
-            double avg_rate = (total_hashes / total_time) / 1e6;
-            printf("Último bloco: %.3f s (%.2f Mhash/s) | Média: %.2f Mhash/s\n",
-                block_time, 1.0 / block_time, avg_rate);
+        if (time_limit > 0.0 && elapsed >= time_limit) {
+            printf("\n=== Tempo limite atingido (%.2f / %.2f) ===\n", elapsed, time_limit);
+            printf("Tentativas totais: %llu\n", n_attempts);
+            printf("Taxa média: %.2f Mhash/s\n", (n_attempts / elapsed) / 1e6);
+            break;
         }
         
     }
