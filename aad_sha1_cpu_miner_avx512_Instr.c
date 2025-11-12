@@ -161,18 +161,18 @@ int main(void) {
                         ((uint64_t*)&nonce.chunks[c])[lane] → acede ao elemento [lane] do array uint64_t
                     */
                     ((uint64_t*)&nonce.chunks[c])[lane] = p[c]; // COPIA o nonce de msg para nonce16_t
-                    printf("Lane %2d nonce at start:\n", lane);
-                    printf("  Chunk %d: %016lX\n", c, p[c]);
+                    // printf("Lane %2d nonce at start:\n", lane);
+                    // printf("  Chunk %d: %016lX\n", c, p[c]);
                 }
                 nonce.rem[lane] = ((uint16_t*)(&msg[lane * LANE_SIZE + 12 + NONCE_CHUNKS*8]))[0]; // bytes restantes
-                printf("  Rem: %04X\n", nonce.rem[lane]);
+                // printf("  Rem: %04X\n", nonce.rem[lane]);
             }
         } else {
             increment_nonces16(&nonce);
             // copia novos nonces para msg
             for (int lane = 0; lane < N_LANES; lane++) {
                 uint64_t *p = (uint64_t*)(msg + lane * LANE_SIZE + 12); // ponteiro para chunks do nonce
-                printf("Lane %2d nonce after increment:\n", lane);
+                // printf("Lane %2d nonce after increment:\n", lane);
                 for (int c = 0; c < NONCE_CHUNKS; c++) {
                     // escolhe 0/1 para lanes 0–7 ou 8–15 se lane >= 8, registos impares (7-15) e vice versa
                     int chunk_index = c * 2 + (lane >= 8);
@@ -180,15 +180,14 @@ int main(void) {
                     int lane_index  = lane % 8;
                     // 
                     p[c] = ((uint64_t*)&nonce.chunks[chunk_index])[lane_index];
-                    printf("  Chunk %d: %016lX\n", c, p[c]);
+                    // printf("  Chunk %d: %016lX\n", c, p[c]);
                 }
                 ((uint16_t*)(&msg[lane * LANE_SIZE + 12 + NONCE_CHUNKS*8]))[0] = nonce.rem[lane];
-                printf("  Rem: %04X\n", nonce.rem[lane]);
+                // printf("  Rem: %04X\n", nonce.rem[lane]);
             }
 
         }
 
-        sleep(10);
 
 
         // monta coin_u32: cada word i é um vector com as 16 lanes
