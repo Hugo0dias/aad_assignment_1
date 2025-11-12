@@ -28,10 +28,10 @@ __device__ void generate_message_from_id(u64_t nonce, u32_t *data)
     // 2. Write nonce bytes with XOR 3
     unsigned long long tmp = nonce;
     for (int i = 12; i < 54; ++i) {
-        u08_t b = (u08_t)(tmp & 0xFFu);
-        if (b == (u08_t)'\n') b = (u08_t)'\b'; // avoid newline
+        u08_t b = (u08_t)(tmp & 0xFFu);         // get the least significant byte (8 bits)
+        if (b == (u08_t)'\n') b = (u08_t)'\b';  // avoid newline (\n), substitute with backspace (\bs)
         msg[i ^ 3] = b;
-        tmp >>= 8;
+        tmp >>= 8;                              // move 1 byte to the right
     }
 
     // 3. Add terminator bytes with XOR 3
@@ -43,8 +43,11 @@ __device__ void generate_message_from_id(u64_t nonce, u32_t *data)
     memcpy(data, msg, 56);
 }
 
+// funçao kernel chamada pelo host (cpu)
+// extern "C" para evitar name mangling do C++ (encontrar a funçao pelo nome)
 extern "C" __global__ void deti_miner_kernel(u64_t start_nonce, u32_t *coins_storage_area)
-{
+{   
+    // definidas automaticamente pelo CUDA (1o valor é 0)
     const u64_t gid = (u64_t)blockIdx.x * blockDim.x + threadIdx.x;
     
     // Each thread processes a contiguous block of nonces
@@ -52,7 +55,7 @@ extern "C" __global__ void deti_miner_kernel(u64_t start_nonce, u32_t *coins_sto
     
     u32_t data[14];
     u32_t hash[5];
-
+    // vai haver max|gid_value| threads a fazer ITER_PER_THREAD iterações cada
     for (int iter = 0; iter < ITER_PER_THREAD; ++iter) {
         u64_t nonce = nonce_base + iter;
         
@@ -73,8 +76,11 @@ extern "C" __global__ void deti_miner_kernel(u64_t start_nonce, u32_t *coins_sto
         #undef HASH
 
         if (hash[0] == 0xAAD20250u) {
+            // avança 14 words no buffer (1coin ocupa 14 words)
             u32_t idx = atomicAdd(coins_storage_area, 14u);
+            // verifica se tem espaço no buffer
             if (idx < COINS_BUFFER_WORDS - 14u) {
+                // guarda coin no index certo, 14 * 4 = 56 bytes
                 memcpy(&coins_storage_area[idx], data, 14 * sizeof(u32_t));
             }
         }
