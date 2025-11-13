@@ -59,6 +59,7 @@ int main(void) {
     v8si coin[14];   // 14 words, cada uma com 8 lanes de 32 bits
     v8si hash[5];
     uint32_t coin_lane[14];
+    nonce16_t nonce;
 
     const char template[12] = "DETI coin 2 ";
 
@@ -97,7 +98,6 @@ int main(void) {
 
     while (1) {
 
-        nonce16_t nonce;
         if (n_attempts == 0ULL) {
             for (int lane = 0; lane < N_LANES; lane++) {
                 uint64_t *p = (uint64_t*)(msg + lane * LANE_SIZE + 12); // ponteiro para chunks do nonce
