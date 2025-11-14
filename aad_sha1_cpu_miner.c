@@ -9,16 +9,22 @@
 int main(int argc, char *argv[])
 {
     double time_limit = 0.0; // 0 = sem limite
+    const char *name = NULL;
 
     if (argc > 1) {
         time_limit = atof(argv[1]); // converte string -> double
         if (time_limit <= 0.0) {
-            printf("Invalid time value. Usage: %s [time_in_seconds]\n", argv[0]);
+            printf("Invalid time value. Usage: %s [time_in_seconds] [name]\n", argv[0]);
             return 1;
         }
         printf("Running for %.2f seconds...\n", time_limit);
     } else {
         printf("No time limit — mining inf.\n");
+    }
+
+    if (argc > 2) {
+        name = argv[2];
+        printf("Searching coins with embedded name: \"%s\"\n", name);
     }
 
 
@@ -47,6 +53,15 @@ int main(int argc, char *argv[])
     msg[54 ^ 3] = '\n';   // penúltimo byte é \n
     msg[55 ^ 3] = 0x80;    // último byte é padding
 
+    // se houver nome, fixa na posição 12
+    size_t name_len = 0;
+    if (name != NULL) {
+        name_len = strlen(name);
+        if (name_len > 42) name_len = 42; // verifica se cabe nos bytes 12..53
+        for (size_t i = 0; i < name_len; i++)
+            msg[(12 + i) ^ 3] = (u08_t)name[i];
+    }
+
     printf("Starting CPU miner (without SIMD)...\n");
 
     double elapsed = 0.0;
@@ -55,10 +70,22 @@ int main(int argc, char *argv[])
     while(1) {
         // gerar nova moeda (incrementar nonce)
         // soma 1 ao byte 12, se overflow, soma 1 ao byte 13, e assim sucessivamente
-        for (int i = 12; i < 54; i++) {
-            if (++msg[i] == '\n')  // se for 0x0A, incrementa again
-                ++msg[i];
-            if (msg[i] != 0) break;
+        for (int i = 12 + name_len; i < 54; i++) {
+            if (++msg[i^3] == '\n')  // se for 0x0A, incrementa again
+                ++msg[i^3];
+            if (msg[i^3] != 0) break;
+        }
+
+        if (n_attempts < 1000) {
+			// msg = coin apontam para mesma memoria
+            printf("Tentativa %llu:\n", n_attempts + 1);
+
+            printf("Coin bytes (as seen by save_coin() / SHA1 CPU):\n");
+			for (int i = 0; i < 56; i++) {
+				printf("%02x ", msg[i]);
+				if ((i + 1) % 16 == 0) printf("\n");
+			}
+			printf("\n");
         }
 
         // calcular hash sha1
