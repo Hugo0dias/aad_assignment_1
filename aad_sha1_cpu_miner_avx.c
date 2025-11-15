@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include <immintrin.h>
 
 #define N_LANES 4
+#define COIN_SIZE 56 
 
 static inline int prefix_matches_aad2025(u32_t first_word) {
     return first_word == 0xAAD20250u; // cheque exacto do word H0 (mais seguro)
@@ -60,43 +62,34 @@ int main(int argc, char *argv[])
 
     unsigned long long n_attempts = 0ULL;
 
-    u08_t msg[N_LANES * 56];
+    u08_t msg[N_LANES * COIN_SIZE];
     v4si coin[14];
     v4si hash[5];
+    u08_t coin_lane[COIN_SIZE];
     memset(msg, 0, sizeof(msg));
+
 
     // reserva 1os 12 bytes para o cabeçalho fixo da moeda, para cada uma das lanes
     // Monta msg por lane
     const char template[12] = "DETI coin 2 ";
-
-    // Calcula tamanho do nome
-    size_t name_len = 0;
-    if (name != NULL) {
-        name_len = strlen(name);
-        if (name_len > 42) name_len = 42;
-    }
+    size_t name_len = name ? strlen(name) : 0;
+    if(name_len > 42) name_len = 42;
 
     for (int lane = 0; lane < N_LANES; lane++) {
-        // 1. Prefixo
         for (int i = 0; i < 12; i++)
-            msg[lane*56 + i] = (u08_t)template[i];
-
-        // 2. Nome (se houver)
+            msg[lane*COIN_SIZE + i] = template[i];
         for (size_t i = 0; i < name_len; i++)
-            msg[lane*56 + 12 + i] = (u08_t)name[i];
-
-        // 4. Terminadores -> vao ser sobrescritos pelo nonce maybe
-        msg[lane*56 + 54] = '\n';
-        msg[lane*56 + 55] = 0x80;
+            msg[lane*COIN_SIZE + 12 + i] = name[i];
+        for (int i = 0; i < 42 - name_len; i++)
+            msg[lane*COIN_SIZE + 12 + name_len + i] = 0;
+        msg[lane*COIN_SIZE + 54] = '\n';   // byte 54
+        msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
     }
 
     // ponteiros para nonces (bytes 12..53)
     u08_t *nonce[N_LANES];
-    for (int lane = 0; lane < N_LANES; lane++)
-        nonce[lane] = &msg[lane*56 + 12 + name_len];
-
-    // coin_lane = 1 coin temp
-    u32_t coin_lane[14];
+    for(int lane=0; lane<N_LANES; lane++)
+        nonce[lane] = &msg[lane*COIN_SIZE + 12 + name_len];
     
     double elapsed = 0.0;
     time_measurement();
@@ -124,29 +117,26 @@ int main(int argc, char *argv[])
 
             unsigned long long final_nonce = base_nonce[lane] + lane_nonce[lane];
 
-            //printf("%llu", final_nonce);
-            //printf("\n");
+            printf("%llu", final_nonce);
+            printf("\n");
 
             // escreve final_nonce em little-endian nos 42 bytes do nonce,
             // substitui 0x0A por 0x08 (backspace) se precisares
             // limpa todos os 42 bytes do nonce
-            u08_t vbytes[42-name_len];
             unsigned long long t = final_nonce;
-            for (int i = 0; i < 42-name_len; i++) {
-                vbytes[i] = (u08_t)(t & 0xFFu);
+            for (int i = 0; i < 42 - name_len; i++) {
+                u08_t b = (u08_t)(t & 0xFFu);
                 t >>= 8;
+                if(b == 0x0A) b = 0x08;   // evita newline
+                msg[lane*COIN_SIZE + 12 + name_len + i] = b;
             }
-            for (int i = 0; i < 42 -name_len; i++)
-                if (vbytes[i] == 0x0A) vbytes[i] = 0x08;
-            for (int i = 0; i < 42 -name_len; i++)
-                msg[lane*56 + 12 + name_len + i] = vbytes[i];
             
             // sobrescrever o q foi sobrescrito, ahahahahah
-            msg[lane*56 + 54] = '\n';
-            msg[lane*56 + 55] = 0x80;
+            msg[lane*COIN_SIZE + 54] = '\n';
+            msg[lane*COIN_SIZE + 55] = 0x80;
         }
 
-        /*for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
+        for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
             printf("Tentativa %llu, Lane %d, nonce = ", trial, lane); 
             for (int i = 0; i < 42; i++) 
                 printf("%02X", nonce[lane][i]); 
@@ -156,73 +146,73 @@ int main(int argc, char *argv[])
             printf("\nTentativa %llu:\n", n_attempts + 1); 
             for (int lane = 0; lane < N_LANES; lane++) { 
                 printf(" Lane %d:\n", lane); 
-                for (int i = 0; i < 56; i++) { 
-                    printf("%02X ", msg[lane*56 + (i^3)]); 
+                for (int i = 0; i < COIN_SIZE; i++) { 
+                    printf("%02X ", msg[lane*COIN_SIZE + (i^3)]); 
                     if ((i + 1) % 16 == 0) printf("\n"); 
                 } printf("\n"); 
             } 
             printf("\n"); 
-        }*/
+        }
         
-        // bem
-        for(int i = 0; i < 14; i++) {       // cada word
-            for(int lane = 0; lane < N_LANES; lane++) {
+
+        for(int w=0; w<14; w++) {
+            for(int lane=0; lane<N_LANES; lane++) {
                 u32_t word = 0;
-                for(int b = 0; b < 4; b++) {
-                    word |= ((u32_t)msg[lane*56 + i*4 + b]) << (8*b);  // pega word i de cada lane
+                for(int b=0; b<4; b++) {
+                    int idx = w*4 + b;
+                    if(idx < COIN_SIZE)
+                        word |= ((u32_t)msg[lane*COIN_SIZE + (idx ^ 3)]) << (8*b);
                 }
-                coin[i][lane] = word;  // word i de cada lane
+                coin[w][lane] = word;
             }
         }
-        //print_v4si_words("COIN (real, LE)", coin, 14);
-        
-        v4si coin_swap[14];
-        for (int w = 0; w < 14; w++)
-        for (int lane = 0; lane < N_LANES; lane++)
-            coin_swap[w][lane] = __builtin_bswap32(coin[w][lane]);
-
-        //print_v4si_words("COIN_SWAP (^3, BE)", coin_swap, 14);
 
 
         // chama a versão AVX da sha1 que produz 4 hashes em paralelo
-        sha1_avx((v4si*)coin_swap, (v4si*)hash);
+        sha1_avx((v4si*)coin, (v4si*)hash);
 
-        //print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
+        print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
 
         // layout: ((u32_t*)hash) = [h0_l0,h0_l1,h0_l2,h0_l3, h1_l0,h1_l1,...]
         u32_t *hash_u32 = (u32_t*)hash;
-        /*printf("\nHASH per lane (with endian correction):\n");
+        printf("\nHASH per lane (with endian correction):\n");
         for (int lane = 0; lane < N_LANES; lane++) {
             u32_t h0_le = hash_u32[0*N_LANES + lane];
             u32_t h0_be = __builtin_bswap32(h0_le);
             printf("Lane %d: H0 = LE=%08X  BE=%08X\n",
                 lane, h0_le, h0_be);
-        }*/
+        }
         for(int lane=0; lane<N_LANES; lane++) {
             u32_t h0_of_lane = hash_u32[0 * N_LANES + lane]; // índice = word_index*4 + lane
             if(prefix_matches_aad2025(h0_of_lane)) {
-                // extrair a coin dessa lane (reconstruir 14 words)
-                for(int i=0;i<14;i++)
-                    coin_lane[i] = coin[i][lane];
 
-                save_coin(coin_lane);
-                u08_t *coin_bytes = (u08_t *)coin_lane;
+                u32_t coin_lane_arr[14];
+                for(int w=0; w<14; w++)
+                    coin_lane_arr[w] = coin[w][lane];  // pega só a lane válida
+                save_coin(coin_lane_arr);
+
+
+                // converte para bytes para print
+                u08_t coin_bytes[COIN_SIZE];
+                for(int w=0; w<14; w++)
+                    for(int b=0; b<4; b++)
+                        coin_bytes[w*4 + b] = (coin_lane_arr[w] >> (8*b)) & 0xFF;
+
                 printf("\033[1;32mFound DETI coin after %llu attempts!\033[0m\n", n_attempts);
-
                 printf("Coin bytes (human order):\n");
-                for (int i = 0; i < 56; i++) {
+                for (int i = 0; i < COIN_SIZE; i++) {
                     printf("%02X ", coin_bytes[i]);
                     if ((i + 1) % 16 == 0) printf("\n");
                 }
                 printf("\nAs string (printable ASCII, \\x?? for non-printables):\n");
-                for (int i = 0; i < 56; i++) {
+                for (int i = 0; i < COIN_SIZE; i++) {
                     if (coin_bytes[i] >= 32 && coin_bytes[i] <= 126)
                         printf("%c", coin_bytes[i]);
                     else
                         printf("\\x%02X", coin_bytes[i]);
                 }
                 printf("\n");
-		        save_coin(NULL);
+                save_coin(NULL);
             }
         }
 
@@ -242,5 +232,3 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-
-
