@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DETI Coin Miner WASM</title>
+</head>
+<body>
+    <h1>DETI Coin Miner</h1>
+    <button id="start">Start Miner</button>
+    <script>
+        document.getElementById('start').addEventListener('click', () => {
+            const worker = new Worker('worker.js');
+            console.log("Miner worker started!");
+        });
+    </script>
+
+</body>
+</html>

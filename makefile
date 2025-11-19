@@ -62,6 +62,15 @@ sha1_miner: aad_sha1_cpu_miner.c
 sha1_miner_avx: aad_sha1_cpu_miner_avx.c
 	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx.c -o cpu_miner_avx
 
+sha1_miner_utf8: aad_sha1_cpu_miner_utf8.c
+	cc -O3 -march=native -funroll-loops -flto -fomit-frame-pointer -Wall aad_sha1_cpu_miner_utf8.c -o cpu_miner_utf8
+
+sha1_miner_avx_utf8: aad_sha1_cpu_miner_avx_utf8.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx_utf8.c -o cpu_miner_avx_utf8
+
+#avx_correct: avx_correction.c
+#	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native avx_correction.c -o avx_correct
+
 sha1_cuda_test:	aad_sha1_cuda_test.c sha1_cuda_kernel.cubin aad_sha1.h aad_data_types.h aad_utilities.h aad_cuda_utilities.h makefile
 	cc -march=native -Wall -Wshadow -Werror -O3 $< -o $@ -lcuda
 
