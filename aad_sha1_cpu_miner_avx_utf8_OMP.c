@@ -55,15 +55,22 @@ int main(int argc, char *argv[])
         v4si coin[14];
         v4si hash[5];
         u08_t nonce[N_LANES][42];
+        u08_t nonce2[N_LANES][42];
 
-        // Inicializa lanes com escalonamento por thread
+        // Inicializa lanes com escalonamento PERMANENTE por thread E lane
+        // Cada combinação (thread, lane) tem byte 0 ÚNICO
+        // Fórmula: 0x20 + (tid * N_LANES + lane) * 4
+        // Garante que cada (thread, lane) tem um valor único
+        
         for(int lane=0; lane<N_LANES; lane++){
             memcpy(&msg[lane*COIN_SIZE], template, 12);
             if(name_len) memcpy(&msg[lane*COIN_SIZE+12], name, name_len);
 
             int avail = 42 - (int)name_len;
-            // Escalonamento por thread: cada thread começa com offset diferente
-            nonce[lane][0] = 0x20 + lane + tid*16; // primeira posição
+            // Escalonamento ÚNICO por (thread, lane) - sem colisões
+            int unique_id = tid * N_LANES + lane;  // ID único para cada (thread, lane)
+            nonce[lane][0] = 0x20 + (unique_id % 128);  // Distribui em 0x20-0x9F
+            
             for(int i=1; i<avail; i++)
                 nonce[lane][i] = 0x20; // restante inicializado
 
@@ -77,12 +84,47 @@ int main(int argc, char *argv[])
         const int MIN_CHAR = 0x20;
         const int MAX_CHAR = 0x9F;
         int avail = 42 - (int)name_len;
+        int base_idx = 0;                  // Byte 0 é o índice base FIXO
+        int odometer_start = 1;            // Odômetro começa no byte 1
+        int odometer_end = avail - 1;      // Termina no último byte
+
+        // Define nonce pré-definido para comparação
+        u08_t target_nonce[42] = {
+            0x3D, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x45, 0x3E
+        };
 
         while(1) {
-            // Incrementa odômetro alfanumérico por lane
+            // Incrementa odômetro alfanumérico por lane (bytes 1 até avail-1)
+            // Byte 0 NUNCA é incrementado para manter diferenciação entre lanes
             for(int lane=0; lane<N_LANES; lane++){
                 int carry=1;
-                for(int i=avail-1; i>=0 && carry; i--){
+                
+                if (n_attempts_total >= 5000000000){
+                    #pragma omp critical
+                    {
+                        printf("Entered critical section for nonce check\n");
+                        // Copia nonce para verificação
+                        //memcpy(nonce2[lane], nonce[lane], avail);
+                        //// 
+                        //// // Compara com nonce pré-definido
+                        //if(memcmp(nonce2[lane], target_nonce, avail) == 0){
+                        //    printf("\n*** Thread %d Lane %d ENCONTROU NONCE PRÉ-DEFINIDO! ***\n", tid, lane);
+                        //    printf("Nonce: ");
+                        //    for(int i=0; i<avail; i++){
+                        //        printf("%02X", nonce2[lane][i]);
+                        //    }
+                        //    printf("\n\n");
+                        
+                        printf("Thread %d Lane %d: ", tid, lane);
+                        for(int i=0; i<avail; i++){
+                            printf("%02X ", nonce[lane][i]);
+                        }
+                        printf("\n");
+                        //}
+                    }
+                }
+                
+                for(int i=odometer_end; i>=odometer_start && carry; i--){
                     nonce[lane][i]++;
                     if(nonce[lane][i] > MAX_CHAR){
                         nonce[lane][i] = MIN_CHAR;
@@ -90,6 +132,8 @@ int main(int argc, char *argv[])
                     } else carry = 0;
                     msg[lane*COIN_SIZE + 12 + i + name_len] = nonce[lane][i];
                 }
+                // Se odômetro fez wrap completo, poderia incrementar byte 0
+                // MAS NÃO FAZEMOS para manter diferenciação entre lanes!
             }
 
             n_attempts += N_LANES;
