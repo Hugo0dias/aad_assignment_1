@@ -1,169 +1,243 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include "aad_data_types.h"
 #include "aad_sha1_cpu.h"
 #include "aad_utilities.h"
 #include "aad_vault.h"
 #include <immintrin.h>
 
-#define N_LANES 16   // AVX-512 = 512 bits / 32 bits por int = 16 lanes
+#define N_LANES 16
+#define COIN_SIZE 56 
 
 static inline int prefix_matches_aad2025(u32_t first_word) {
-    return first_word == 0xAAD20250u;
+    return first_word == 0xAAD20250u; // cheque exacto do word H0 (mais seguro)
 }
 
-// LUT: tabela de próximo valor alfanumérico (muito mais rápido que if-else)
-static const u08_t NEXT_ALNUM[256] = {
-    ['0']=  '1', ['1']=  '2', ['2']=  '3', ['3']=  '4', ['4']=  '5',
-    ['5']=  '6', ['6']=  '7', ['7']=  '8', ['8']=  '9', ['9']=  'a',
-    ['a']=  'b', ['b']=  'c', ['c']=  'd', ['d']=  'e', ['e']=  'f',
-    ['f']=  'g', ['g']=  'h', ['h']=  'i', ['i']=  'j', ['j']=  'k',
-    ['k']=  'l', ['l']=  'm', ['m']=  'n', ['n']=  'o', ['o']=  'p',
-    ['p']=  'q', ['q']=  'r', ['r']=  's', ['s']=  't', ['t']=  'u',
-    ['u']=  'v', ['v']=  'w', ['w']=  'x', ['x']=  'y', ['y']=  'z',
-    ['z']=  'A', ['A']=  'B', ['B']=  'C', ['C']=  'D', ['D']=  'E',
-    ['E']=  'F', ['F']=  'G', ['G']=  'H', ['H']=  'I', ['I']=  'J',
-    ['J']=  'K', ['K']=  'L', ['L']=  'M', ['M']=  'N', ['N']=  'O',
-    ['O']=  'P', ['P']=  'Q', ['Q']=  'R', ['R']=  'S', ['S']=  'T',
-    ['T']=  'U', ['U']=  'V', ['V']=  'W', ['W']=  'X', ['X']=  'Y',
-    ['Y']=  'Z', ['Z']=  '0',
-};
-
-// LUT para caracteres alfanuméricos (para init aleatória)
-static const u08_t ALPHANUMERIC[62] = {
-    '0','1','2','3','4','5','6','7','8','9',
-    'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
-    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'
-};
-
-// Gera um byte alfanumérico aleatório (muito mais rápido com LUT)
-static inline u08_t random_alphanumeric(void) {
-    return ALPHANUMERIC[rand() % 62];
-}
-
-static inline u08_t next_alphanumeric(u08_t current) {
-    return NEXT_ALNUM[current];
-}
-
-
-int main(void)
+int main(int argc, char *argv[])
 {
+
+    unsigned long long base_nonce[N_LANES] = {0};  // offset base para cada lane
+    unsigned long long lane_nonce[N_LANES] = {0};  // nonce relativo à lane
+
+    double time_limit = 0.0; // 0 = sem limite
+    const char *name = NULL;
+
+    if (argc > 1) {
+        time_limit = atof(argv[1]); // converte string -> double
+        if (time_limit <= 0.0) {
+            printf("Invalid time value. Usage: %s [time_in_seconds]\n", argv[0]);
+            return 1;
+        }
+        printf("Running for %.2f seconds...\n", time_limit);
+    } else {
+        printf("No time limit — mining inf.\n");
+    }
+
+    if (argc > 2) {
+        name = argv[2];
+        printf("Searching coins with embedded name: \"%s\"\n", name);
+    }
+
     unsigned long long n_attempts = 0ULL;
-    double elapsed;
 
-    u08_t msg[N_LANES * 56] __attribute__((aligned(64)));  // Alinhado a 64 bytes para AVX-512
-    v16si coin[14];   // AVX-512: 16 lanes de 32 bits
+    u08_t msg[N_LANES * COIN_SIZE] __attribute__((aligned(64)));
+    v16si coin[14];
     v16si hash[5];
+    u08_t coin_lane[COIN_SIZE];
+    memset(msg, 0, sizeof(msg));
 
+
+    // reserva 1os 12 bytes para o cabeçalho fixo da moeda, para cada uma das lanes
+    // Monta msg por lane
     const char template[12] = "DETI coin 2 ";
+    size_t name_len = name ? strlen(name) : 0;
+    if(name_len > 42) name_len = 42;
 
-    // Inicialização aleatória do nonce
-    srand((unsigned int)time(NULL));
+    for (int lane = 0; lane < N_LANES; lane++) {
+        for (int i = 0; i < 12; i++)
+            msg[lane*COIN_SIZE + i] = template[i];
+        for (size_t i = 0; i < name_len; i++)
+            msg[lane*COIN_SIZE + 12 + i] = name[i];
+        for (int i = 0; i < 42 - name_len; i++)
+            msg[lane*COIN_SIZE + 12 + name_len + i] = 0;
+        msg[lane*COIN_SIZE + 54] = '\n';   // byte 54
+        msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
+    }
 
-    for(int lane=0; lane<N_LANES; lane++) {
-        // copia o template
-        for(int i=0;i<12;i++)
-            msg[lane*56 + (i^3)] = (u08_t)template[i];
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
+    int charset_len = (int)(sizeof(charset) - 1);
 
-        // padding
-        msg[lane*56 + (54^3)] = '\n';
-        msg[lane*56 + (55^3)] = 0x80;
+    /* para cada lane, um odómetro com avail posições */
+    /* para cada lane, um odómetro com avail posições */
+    #define BLOCK_SIZE 1 // já tens
+    int avail = 42 - (int)name_len;
+    unsigned long long lane_block = BLOCK_SIZE; // cada lane processa N nonces por iteração
 
-        // nonce inicial aleatório nos 42 bytes
-        for(int j=0; j<42; j++) {
-            u08_t b;
-            do {
-                b = (u08_t)(random_alphanumeric());   // 0x00..0x7F
-            } while (b >= 0x80);              // redundante, por segurança
-            msg[lane*56 + ((12 + j) ^ 3)] = b;
+    unsigned int indices[N_LANES][42];
+    memset(indices, 0, sizeof(indices));
+
+    // ponteiros para nonces (bytes 12..53)
+    // ponteiros para os bytes 12..53
+    u08_t *nonce[N_LANES];
+    for (int lane = 0; lane < N_LANES; lane++) {
+        nonce[lane] = &msg[lane * COIN_SIZE + 12 + name_len];
+    }
+
+    // inicializa cada lane com nonce diferente
+    for (int lane = 0; lane < N_LANES; lane++) {
+        for (int i = 0; i < avail; i++) {
+            nonce[lane][i] = 0x20 + lane;   // valores diferentes entre lanes
         }
     }
 
-    u32_t coin_lane[14];
+
+    
+    double elapsed = 0.0;
     time_measurement();
 
+    /* 1) inicializa base_nonce para escalonar as lanes (evita colisões) */
+    u08_t lane_start[N_LANES] = {0x20, 0x40, 0x60, 0x80}; // exemplo
+    for(int lane=0; lane<N_LANES; lane++){
+        nonce[lane][0] = lane_start[lane];
+        for(int i=1; i<avail; i++)
+            nonce[lane][i] = 0x20;
+    }
+
+
+
+    #define MIN_CHAR 0x20   // início do intervalo
+    #define MAX_CHAR 0x9F   // fim do intervalo (128 valores = 0x20..0x9F). usa 0x7E se preferires 95
+
     while(1) {
-        // incrementa nonce de 42 bytes por lane (como little-endian)
-        // com validação UTF-8: salta 0x0A e bytes >= 0x80
-                // incrementa nonce de 42 bytes por lane (como little-endian)
-        // com validação UTF-8: salta 0x0A e bytes >= 0x80
-        for (int lane = 0; lane < N_LANES; lane++) {
-            for (int j = 0; j < 42; j++) {
-                int idx = ((12 + j) ^ 3);               // usa o mesmo mapeamento que no init
-                u08_t *p = &msg[lane*56 + idx];
 
-                // incrementa com carry
-                (*p)= next_alphanumeric(*p);
-                if (*p != '0')  // carry propagation ('0' indica wrap)
-                    break;
+        // --- parâmetros que podes ajustar ---
+        // --------------------------------------------------------------------
+        int base_idx = 0; // primeiro byte da lane
+        int odometer_start = 1; // após base, ou após name_len
+        int odometer_end = avail-1; // último byte disponível do odômetro
+
+        for(int lane=0; lane<N_LANES; lane++){
+            int carry = 1;  // sempre começamos incrementando
+            for(int i = odometer_end; i >= odometer_start && carry; i--){
+                nonce[lane][i] += carry;
+                if(nonce[lane][i] > 0x9F){
+                    nonce[lane][i] = 0x20; // wrap
+                    carry = 1; // carry continua
+                } else {
+                    carry = 0; // carry resolvido
+                }
             }
+            // só incrementa base se odômetro completo deu wrap
+            if(carry){
+                nonce[lane][base_idx]++;
+                if(nonce[lane][base_idx] > 0x9F)
+                    nonce[lane][base_idx] = 0x20; // wrap da base
+            }
+
+            msg[lane*COIN_SIZE + 54] = '\n';   // byte 54
+            msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
         }
 
 
-        // monta coin_u32 a partir de msg com byte-swap
-        u32_t *coin_u32 = (u32_t*)coin;
-        u32_t *msg_u32  = (u32_t*)msg;
-        // monta coin_u32 a partir de msg
-        for(int i=0;i<14;i++) {
+
+
+
+        /*for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
+            printf("Tentativa %llu, Lane %d, nonce = ", trial, lane); 
+            for (int i = 0; i < 42; i++) 
+                printf("%02X", nonce[lane][i]); 
+            printf("\n"); 
+        }
+
+    
+        if (n_attempts < 4000) { 
+            printf("\nTentativa %llu:\n", n_attempts + 1); 
+            for (int lane = 0; lane < N_LANES; lane++) { 
+                printf(" Lane %d:\n", lane); 
+                for (int i = 0; i < COIN_SIZE; i++) { 
+                    printf("%02X ", msg[lane*COIN_SIZE + (i^3)]); 
+                    if ((i + 1) % 16 == 0) printf("\n"); 
+                } printf("\n"); 
+            } 
+            printf("\n"); 
+        }*/
+        
+
+        for(int w=0; w<14; w++) {
             for(int lane=0; lane<N_LANES; lane++) {
-                // copiar os bytes diretamente do msg
-                coin_u32[i*N_LANES + lane] = msg_u32[lane*14 + i]; // sem bswap aqui
+                u32_t word = 0;
+                for(int b=0; b<4; b++) {
+                    int idx = w*4 + b;
+                    if(idx < COIN_SIZE)
+                        word |= ((u32_t)msg[lane*COIN_SIZE + (idx ^ 3)]) << (8*b);
+                }
+                coin[w][lane] = word;
             }
         }
-        
-        
 
-        // calcula SHA1 AVX-512
+
+        // chama a versão AVX da sha1 que produz 4 hashes em paralelo
         sha1_avx512f((v16si*)coin, (v16si*)hash);
 
-        u32_t *hash_u32 = (u32_t*)hash;
-        for(int lane=0; lane<N_LANES; lane++) {
-            u32_t h0_of_lane = hash_u32[0 * N_LANES + lane];
-            if(h0_of_lane == 0xEB90509u) {
-                printf("Found target hash in lane %d: %08X\n", lane, h0_of_lane);
-            }
-            if(prefix_matches_aad2025(h0_of_lane)) {
-                // Valida que o nonce NÃO contém 0x0A ou bytes >= 0x80
+        //print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
 
-                // exemplo de impressão do nonce lógico (42 bytes)
-                u08_t *base = &msg[lane*56];
-                printf("Nonce logical (lane %d): ", lane);
-                for (int j = 0; j < 42; ++j) {
-                    int idx = ((12 + j) ^ 3);
-                    printf("%02X ", base[idx]);
+        // layout: ((u32_t*)hash) = [h0_l0,h0_l1,h0_l2,h0_l3, h1_l0,h1_l1,...]
+        u32_t *hash_u32 = (u32_t*)hash;
+        /*printf("\nHASH per lane (with endian correction):\n");
+        for (int lane = 0; lane < N_LANES; lane++) {
+            u32_t h0_le = hash_u32[0*N_LANES + lane];
+            u32_t h0_be = __builtin_bswap32(h0_le);
+            printf("Lane %d: H0 = LE=%08X  BE=%08X\n",
+                lane, h0_le, h0_be);
+        }*/
+        for(int lane=0; lane<N_LANES; lane++) {
+            u32_t h0_of_lane = hash_u32[0 * N_LANES + lane]; // índice = word_index*4 + lane
+            if(prefix_matches_aad2025(h0_of_lane)) {
+
+                u32_t coin_lane_arr[14];
+                for(int w=0; w<14; w++)
+                    coin_lane_arr[w] = coin[w][lane];  // pega só a lane válida
+                save_coin(coin_lane_arr);
+
+
+                // converte para bytes para print
+                u08_t coin_bytes[COIN_SIZE];
+                for(int w=0; w<14; w++)
+                    for(int b=0; b<4; b++)
+                        coin_bytes[w*4 + b] = (coin_lane_arr[w] >> (8*b)) & 0xFF;
+
+                printf("\033[1;32mFound DETI coin after %llu attempts!\033[0m\n", n_attempts);
+                printf("Coin bytes (human order):\n");
+                for (int i = 0; i < COIN_SIZE; i++) {
+                    printf("%02X ", coin_bytes[i]);
+                    if ((i + 1) % 16 == 0) printf("\n");
+                }
+                printf("\nAs string (printable ASCII, \\x?? for non-printables):\n");
+                for (int i = 0; i < COIN_SIZE; i++) {
+                    if (coin_bytes[i] >= 32 && coin_bytes[i] <= 126)
+                        printf("%c", coin_bytes[i]);
+                    else
+                        printf("\\x%02X", coin_bytes[i]);
                 }
                 printf("\n");
-
-                
-
-                for(int i=0;i<14;i++)
-                    coin_lane[i] = coin_u32[i * N_LANES + lane];
-                save_coin(coin_lane);
                 save_coin(NULL);
-
-                time_measurement();
-                elapsed = wall_time_delta();
-                if (elapsed > 0.0)
-                    printf("%.3f Mhashes/s\n", (double)n_attempts / (elapsed * 1e6));
-                printf("\033[1;32m Found DETI coin after %llu attempts (lane %d)!\033[0m\n",
-                       n_attempts + (unsigned long long)lane + 1ULL, lane);
             }
         }
 
         n_attempts += N_LANES;
-        if (n_attempts > 8996895643ULL + 1ULL)
-            break;
 
-        if (n_attempts % 100000000ULL == 0ULL) {
-            time_measurement();
-            elapsed = wall_time_delta();
-            printf("Attempts: %llu\n", n_attempts);
-            fflush(stdout);
-            if (elapsed > 0.0)
-                printf("%.3f Mhashes/s\n", (double)n_attempts / (elapsed * 1e6));
+        time_measurement();                 // mede nova amostra
+        elapsed += wall_time_delta();       // acumula tempo decorrido
+
+        if (time_limit > 0.0 && elapsed >= time_limit) {
+            printf("\n=== Tempo limite atingido (%.2f / %.2f) ===\n", elapsed, time_limit);
+            printf("Tentativas totais: %llu\n", n_attempts);
+            printf("Taxa média: %.2f Mhash/s\n", (n_attempts / elapsed) / 1e6);
+            break;
         }
+        
     }
 
     return 0;

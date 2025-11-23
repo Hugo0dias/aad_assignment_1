@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include <stdint.h>
 #include "aad_data_types.h"
 #include "aad_sha1_cpu.h"
 #include "aad_utilities.h"
@@ -10,169 +8,206 @@
 #include <immintrin.h>
 #include <omp.h>
 
-#define N_LANES 8   // AVX2 = 256 bits / 32 bits por int = 8 lanes
+#define N_LANES 8
+#define COIN_SIZE 56 
 
 static inline int prefix_matches_aad2025(u32_t first_word) {
-    return first_word == 0xAAD20250u;
+    return first_word == 0xAAD20250u; // cheque exacto do word H0
 }
 
-
-// LUT: tabela de próximo valor alfanumérico (muito mais rápido que if-else)
-static const u08_t NEXT_ALNUM[256] = {
-    ['0']=  '1', ['1']=  '2', ['2']=  '3', ['3']=  '4', ['4']=  '5',
-    ['5']=  '6', ['6']=  '7', ['7']=  '8', ['8']=  '9', ['9']=  'a',
-    ['a']=  'b', ['b']=  'c', ['c']=  'd', ['d']=  'e', ['e']=  'f',
-    ['f']=  'g', ['g']=  'h', ['h']=  'i', ['i']=  'j', ['j']=  'k',
-    ['k']=  'l', ['l']=  'm', ['m']=  'n', ['n']=  'o', ['o']=  'p',
-    ['p']=  'q', ['q']=  'r', ['r']=  's', ['s']=  't', ['t']=  'u',
-    ['u']=  'v', ['v']=  'w', ['w']=  'x', ['x']=  'y', ['y']=  'z',
-    ['z']=  'A', ['A']=  'B', ['B']=  'C', ['C']=  'D', ['D']=  'E',
-    ['E']=  'F', ['F']=  'G', ['G']=  'H', ['H']=  'I', ['I']=  'J',
-    ['J']=  'K', ['K']=  'L', ['L']=  'M', ['M']=  'N', ['N']=  'O',
-    ['O']=  'P', ['P']=  'Q', ['Q']=  'R', ['R']=  'S', ['S']=  'T',
-    ['T']=  'U', ['U']=  'V', ['V']=  'W', ['W']=  'X', ['X']=  'Y',
-    ['Y']=  'Z', ['Z']=  '0',
-};
-
-// LUT para caracteres alfanuméricos (para init aleatória)
-static const u08_t ALPHANUMERIC[62] = {
-    '0','1','2','3','4','5','6','7','8','9',
-    'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
-    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'
-};
-
-// Gera um byte alfanumérico aleatório (muito mais rápido com LUT)
-static inline u08_t random_alphanumeric(void) {
-    return ALPHANUMERIC[rand() % 62];
-}
-
-static inline u08_t next_alphanumeric(u08_t current) {
-    return NEXT_ALNUM[current];
-}
-
-int main(void)
+int main(int argc, char *argv[])
 {
-    unsigned long long total_attempts = 0ULL;
-    const unsigned long long REPORT_INTERVAL = 100000000ULL;
+    double time_limit = 0.0;
+    const char *name = NULL;
+    unsigned long long thread_attempts[128] = {0}; // suporte até 128 threads
+
+    if (argc > 1) {
+        time_limit = atof(argv[1]);
+        if (time_limit <= 0.0) {
+            printf("Invalid time value. Usage: %s [time_in_seconds]\n", argv[0]);
+            return 1;
+        }
+        printf("Running for %.2f seconds...\n", time_limit);
+    } else {
+        printf("No time limit — mining inf.\n");
+    }
+
+    if (argc > 2) {
+        name = argv[2];
+        printf("Searching coins with embedded name: \"%s\"\n", name);
+    }
+
+    size_t name_len = name ? strlen(name) : 0;
+    if (name_len > 42) name_len = 42;
+
     const char template[12] = "DETI coin 2 ";
-    double global_start_time = omp_get_wtime();
-    double last_report_time = global_start_time;
-    srand((unsigned int)time(NULL));
+    unsigned long long n_attempts_total = 0ULL;
+    double start_time = omp_get_wtime();
 
     #pragma omp parallel
     {
-        const int tid = omp_get_thread_num();
+        int tid = omp_get_thread_num();
         unsigned long long n_attempts = 0ULL;
-        u08_t msg[N_LANES * 56] __attribute__((aligned(32)));
-        v8si coin[14];   // AVX2: 8 lanes de 32 bits
+        int myid = tid;  // alias simples
+
+
+        u08_t msg[N_LANES * COIN_SIZE] __attribute__((aligned(32)));
+        v8si coin[14];
         v8si hash[5];
+        u08_t nonce[N_LANES][42];
+        u08_t nonce2[N_LANES][42];
 
-        // Inicialização aleatória do nonce
-        for(int lane=0; lane<N_LANES; lane++) {
-            // copia o template diretamente
-            for(int i=0;i<12;i++)
-                msg[lane*56 + i] = (u08_t)template[i];
+        // Inicializa lanes com escalonamento PERMANENTE por thread E lane
+        // Cada combinação (thread, lane) tem byte 0 ÚNICO
+        // Fórmula: 0x20 + (tid * N_LANES + lane) * 4
+        // Garante que cada (thread, lane) tem um valor único
+        
+        for(int lane=0; lane<N_LANES; lane++){
+            memcpy(&msg[lane*COIN_SIZE], template, 12);
+            if(name_len) memcpy(&msg[lane*COIN_SIZE+12], name, name_len);
 
-            // padding
-            msg[lane*56 + 54] = '\n';
-            msg[lane*56 + 55] = 0x80;
+            int avail = 42 - (int)name_len;
+            // Escalonamento ÚNICO por (thread, lane) - sem colisões
+            int unique_id = tid * N_LANES + lane;  // ID único para cada (thread, lane)
+            nonce[lane][0] = 0x20 + (unique_id % 128);  // Distribui em 0x20-0x9F
+            
+            for(int i=1; i<avail; i++)
+                nonce[lane][i] = 0x20; // restante inicializado
 
-            // nonce inicial aleatório nos 42 bytes
-            for(int j=0; j<42; j++) {
-                u08_t b;
-                do {
-                    b = (u08_t)(random_alphanumeric());   // 0x00..0x7F
-                    if (b == 0x0A) b = 0x0B;      // evitar newline
-                } while (b >= 0x80);
-                msg[lane*56 + 12 + j] = b;
-            }
+            // Copia nonce para msg
+            memcpy(&msg[lane*COIN_SIZE+12+name_len], &nonce[lane][0], avail);
+
+            msg[lane*COIN_SIZE+54] = '\n';
+            msg[lane*COIN_SIZE+55] = 0x80;
         }
 
-        u32_t coin_lane[14];
+        const int MIN_CHAR = 0x20;
+        const int MAX_CHAR = 0x9F;
+        int avail = 42 - (int)name_len;
+        int base_idx = 0;                  // Byte 0 é o índice base FIXO
+        int odometer_start = 1;            // Odômetro começa no byte 1
+        int odometer_end = avail - 1;      // Termina no último byte
+
+        // Define nonce pré-definido para comparação
+        u08_t target_nonce[42] = {
+            0x3D, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x45, 0x3E
+        };
 
         while(1) {
-            // incrementa nonce de 42 bytes por lane (little-endian)
-            for (int lane=0; lane<N_LANES; lane++) {
-                u08_t *ptr = &msg[lane*56 + 12];
-                for(int j=0; j<42; j++) {
-                    u08_t *p = &ptr[j];
-                    *p = next_alphanumeric(*p);
-                    if (*p != '0') break;  // carry propagation ('0' indica wrap)
+            // Incrementa odômetro alfanumérico por lane (bytes 1 até avail-1)
+            // Byte 0 NUNCA é incrementado para manter diferenciação entre lanes
+            for(int lane=0; lane<N_LANES; lane++){
+                int carry=1;
+                
+                //if (n_attempts_total >= 5000000000){
+                //    #pragma omp critical
+                //    {
+                //        printf("Entered critical section for nonce check\n");
+                //        // Copia nonce para verificação
+                //        //memcpy(nonce2[lane], nonce[lane], avail);
+                //        //// 
+                //        //// // Compara com nonce pré-definido
+                //        //if(memcmp(nonce2[lane], target_nonce, avail) == 0){
+                //        //    printf("\n*** Thread %d Lane %d ENCONTROU NONCE PRÉ-DEFINIDO! ***\n", tid, lane);
+                //        //    printf("Nonce: ");
+                //        //    for(int i=0; i<avail; i++){
+                //        //        printf("%02X", nonce2[lane][i]);
+                //        //    }
+                //        //    printf("\n\n");
+                //        
+                //        printf("Thread %d Lane %d: ", tid, lane);
+                //        for(int i=0; i<avail; i++){
+                //            printf("%02X ", nonce[lane][i]);
+                //        }
+                //        printf("\n");
+                //        //}
+                //    }
+                //}
+                
+                for(int i=odometer_end; i>=odometer_start && carry; i--){
+                    nonce[lane][i]++;
+                    if(nonce[lane][i] > MAX_CHAR){
+                        nonce[lane][i] = MIN_CHAR;
+                        carry = 1;
+                    } else carry = 0;
+                    msg[lane*COIN_SIZE + 12 + i + name_len] = nonce[lane][i];
                 }
+                // Se odômetro fez wrap completo, poderia incrementar byte 0
+                // MAS NÃO FAZEMOS para manter diferenciação entre lanes!
             }
+
             n_attempts += N_LANES;
 
-            // monta coin_u32 a partir de msg com byte-swap
-            u32_t *coin_u32 = (u32_t*)coin;
-            u32_t *msg_u32  = (u32_t*)msg;
-            for (int i = 0; i < 14; ++i) {
-                for (int lane = 0; lane < N_LANES; ++lane) {
-                    uint32_t w = msg_u32[lane * 14 + i];            
-                    coin_u32[i * N_LANES + lane] = __builtin_bswap32(w);
+            // Monta coin em big-endian
+            for(int w=0; w<14; w++){
+                for(int lane=0; lane<N_LANES; lane++){
+                    u32_t word = 0;
+                    for(int b=0;b<4;b++){
+                        int idx=w*4 + b;
+                        if(idx < COIN_SIZE)
+                            word |= ((u32_t)msg[lane*COIN_SIZE + (idx^3)]) << (8*b);
+                    }
+                    coin[w][lane] = word;
                 }
             }
 
-            // calcula SHA1 AVX2
-            sha1_avx2((v8si*)coin, (v8si*)hash);
+            // SHA1 AVX para 8 lanes
+            sha1_avx2(coin, hash);
 
             u32_t *hash_u32 = (u32_t*)hash;
-            for(int lane=0; lane<N_LANES; lane++) {
-                u32_t h0_of_lane = hash_u32[0 * N_LANES + lane];
+            for(int lane=0; lane<N_LANES; lane++){
+                u32_t h0 = hash_u32[0*N_LANES + lane];
 
-                if(prefix_matches_aad2025(h0_of_lane)) {
-                    u08_t *base = &msg[lane*56];
-                    printf("Nonce logical (lane %d): ", lane);
-                    for (int j = 0; j < 42; ++j) {
-                        int idx = ((12 + j) ^ 3);
-                        printf("%02X ", base[idx]);
-                    }
-                    printf("\n");
-
-                    // Guarda coin de forma consistente
-                    for (int i = 0; i < 14; ++i) {
-                        uint32_t w_msg = msg_u32[lane * 14 + i];
-                        coin_lane[i] = __builtin_bswap32(w_msg);
-                        printf("Coin lane %d, word %d: %08X, char: %s\n", lane, i, coin_lane[i], (char*)&coin_lane[i]); // DEBUG
-                    }
+                if(prefix_matches_aad2025(h0)){
+                    u32_t coin_lane_arr[14];
+                    for(int w=0; w<14; w++)
+                        coin_lane_arr[w] = coin[w][lane];
 
                     #pragma omp critical
                     {
-                        save_coin(coin_lane);
+                        save_coin(coin_lane_arr);
                         save_coin(NULL);
-                    
-                        double elapsed = wall_time_delta();
-                        if (elapsed > 0.0)
-                            printf("%.3f Mhashes/s\n", (double)n_attempts / (elapsed * 1e6));
-                        printf("\033[1;32mThread %d found DETI coin after %llu attempts (lane %d)!\033[0m\n",
-                               tid, n_attempts + (unsigned long long)lane + 1ULL, lane);
+                        printf("\033[1;32mThread %d found DETI coin after %llu attempts!\033[0m\n",
+                               tid, n_attempts_total + n_attempts);
                     }
                 }
             }
 
-            if ((n_attempts % REPORT_INTERVAL) == 0) {
-                unsigned long long prev_total;
-                #pragma omp atomic capture
-                prev_total = total_attempts += n_attempts;
+            // Reporting e checagem de tempo
+            if(n_attempts % 100000000 == 0){
+                thread_attempts[myid] += n_attempts;
                 n_attempts = 0ULL;
 
                 #pragma omp master
                 {
-                    double now = omp_get_wtime();
-                    double elapsed = now - last_report_time;
-                    double total_elapsed = now - global_start_time;
-                    last_report_time = now;
+                    n_attempts_total = 0ULL;
+                    int nt = omp_get_num_threads();
+                    for (int t = 0; t < nt; t++)
+                        n_attempts_total += thread_attempts[t];
+                }
 
-                    if (elapsed > 0.0) {
-                        double mhash_rate = (double)REPORT_INTERVAL / (elapsed * 1e6);
-                        printf("Attempts: %llu  (%.2f Mhashes/s)  Total elapsed: %.1f sec\n",
-                               prev_total, mhash_rate, total_elapsed);
-                        fflush(stdout);
+
+                #pragma omp master
+                {
+                    double now = omp_get_wtime();
+                    double elapsed = now - start_time;
+                    printf("Total attempts: %llu, Elapsed: %.2f sec\n", n_attempts_total, elapsed);
+
+                    if(time_limit > 0.0 && elapsed >= time_limit){
+                        printf("=== Miner stopped ===\n");
+                        printf("Total attempts: %llu\n", n_attempts_total);
+                        double elapsed = omp_get_wtime() - start_time;
+                        printf("Average rate: %.2f Mhashes/s\n",
+                                  (double)n_attempts_total / elapsed / 1e6);
+                        printf("=== Tempo limite atingido ===\n");
+                        exit(0);
                     }
                 }
             }
         }
+    }
 
-    } // end parallel
+
 
     return 0;
 }
