@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <immintrin.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -13,7 +14,7 @@
 #include "../aad_data_types.h"   // include primeiro
 #include "../aad_sha1_cpu.h"   // se o header estiver no diretório acima
 #include "../aad_sha1.h"   // se o header estiver no diretório acima
-
+#include "../aad_utilities.h"   // se o header estiver no diretório acima
 #include "x_common.h"
 
 
@@ -64,6 +65,41 @@ static void counter_to_nonce(uint64_t counter, uint8_t nonce42[42]) {
     }
 }
 
+/* Incrementa um nonce de 42 bytes entre 0x20..0x9F, tipo odómetro base-160 */
+static inline void fast_increment_nonce(uint8_t nonce[42]) {
+    for (int i = 41; i >= 0; i--) {
+        uint8_t v = nonce[i];
+
+        if (v < 0x9F) {       // ainda não atingiu o máximo
+            nonce[i] = v + 1;
+            return;           // acabou, sem carry
+        }
+
+        // estava no máximo: volta ao início e faz carry
+        nonce[i] = 0x20;
+        // loop continua para byte anterior
+    }
+
+    // Se chegaste aqui, overflow total (raro):
+    // nonce fica todo em 0x20 (já garantido pelo loop)
+}
+
+/* converte counter → nonce inicial na base 160 */
+static inline void counter_to_nonce_fast_init(uint64_t counter, uint8_t nonce[42]) {
+    memset(nonce, 0x20, 42);  // todos no valor mínimo
+
+    const uint32_t RANGE = 0x9F - 0x20 + 1; // 160
+
+    int pos = 41;
+    while (counter > 0 && pos >= 0) {
+        uint64_t digit = counter % RANGE;
+        nonce[pos] = 0x20 + digit;
+        counter /= RANGE;
+        pos--;
+    }
+}
+
+
 
 /* build msg bytes (56 bytes) from template + nonce42 */
 static void build_msg_from_nonce(uint8_t msg56[56], const uint8_t nonce42[42]) {
@@ -93,6 +129,14 @@ int main(int argc, char **argv) {
   }
   const char *server_ip = argv[1];
   int port = atoi(argv[2]);
+  double time_limit = 0.0; // 0 = sem limite
+  unsigned long long n_attempts = 0ULL;
+  uint64_t chunk_hashes = 0;
+  uint64_t total_hashes = 0;
+
+
+  double elapsed = 0.0;
+  time_measurement();
 
   while (1) {
     int sock = connect_to_server(server_ip, port);
@@ -115,11 +159,10 @@ int main(int argc, char **argv) {
     printf("got work start=%llu len=%u\n", (unsigned long long)start, length);
 
     /* iterate range and check coins */
+    uint8_t nonce42[42];
+    counter_to_nonce(start, nonce42);
     for (uint64_t counter = start; counter < end; ++counter) {
       // printf("testing counter %llu\r", (unsigned long long)counter); fflush(stdout);
-      uint8_t nonce42[42];
-      counter_to_nonce(counter, nonce42);
-
       uint8_t msg56[56];
       build_msg_from_nonce(msg56, nonce42);
 
@@ -149,7 +192,7 @@ int main(int argc, char **argv) {
 
       // printf("hash[0]: %08X\n", hash[0]);
 
-
+      fast_increment_nonce(nonce42); // next nonce
       if (hash[0] == 0xAAD20250u) {
         /* found coin -> send to server (14 words) */
         printf("found coin for counter %llu: ", (unsigned long long)counter);
@@ -173,6 +216,25 @@ int main(int argc, char **argv) {
 
         /* optionally continue searching same range */
       }
+
+      chunk_hashes++;
+      total_hashes++;
+
+      if (chunk_hashes >= 100000000ULL) {
+          time_measurement();               // atualiza timestamps
+          double dt = wall_time_delta();    // tempo passado desde última medição
+      
+          double hps = chunk_hashes / dt;   // hashes por segundo
+      
+          printf("[%.2f MH/s] — %llu tentativas\n",
+                 hps / 1e6,
+                 (unsigned long long)total_hashes);
+          fflush(stdout);
+          
+          chunk_hashes = 0;                 // reset para o próximo bloco
+      }
+
+
     } /* end for counter */
 
     // NÃO fechar aqui! Só quando cliente terminar ou enviar coin
