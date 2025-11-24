@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
                 break;
         }
 
-        if (n_attempts < 1000) {
+        /*if (n_attempts < 1000) {
 			// msg = coin apontam para mesma memoria
             printf("Tentativa %llu:\n", n_attempts + 1);
 
@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
 				if ((i + 1) % 16 == 0) printf("\n");
 			}
 			printf("\n");
-        }
+        }*/
 
         // calcular hash sha1
         sha1(coin, hash);

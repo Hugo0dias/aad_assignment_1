@@ -117,8 +117,8 @@ int main(int argc, char *argv[])
 
             unsigned long long final_nonce = base_nonce[lane] + lane_nonce[lane];
 
-            printf("%llu", final_nonce);
-            printf("\n");
+            //printf("%llu", final_nonce);
+            //printf("\n");
 
             // escreve final_nonce em little-endian nos 42 bytes do nonce,
             // substitui 0x0A por 0x08 (backspace) se precisares
@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
             msg[lane*COIN_SIZE + 55] = 0x80;
         }
 
-        for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
+        /*for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
             printf("Tentativa %llu, Lane %d, nonce = ", trial, lane); 
             for (int i = 0; i < 42; i++) 
                 printf("%02X", nonce[lane][i]); 
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
                 } printf("\n"); 
             } 
             printf("\n"); 
-        }
+        }*/
         
 
         for(int w=0; w<14; w++) {
@@ -171,17 +171,17 @@ int main(int argc, char *argv[])
         // chama a versão AVX da sha1 que produz 4 hashes em paralelo
         sha1_avx((v4si*)coin, (v4si*)hash);
 
-        print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
+        //print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
 
         // layout: ((u32_t*)hash) = [h0_l0,h0_l1,h0_l2,h0_l3, h1_l0,h1_l1,...]
         u32_t *hash_u32 = (u32_t*)hash;
-        printf("\nHASH per lane (with endian correction):\n");
+        /*printf("\nHASH per lane (with endian correction):\n");
         for (int lane = 0; lane < N_LANES; lane++) {
             u32_t h0_le = hash_u32[0*N_LANES + lane];
             u32_t h0_be = __builtin_bswap32(h0_le);
             printf("Lane %d: H0 = LE=%08X  BE=%08X\n",
                 lane, h0_le, h0_be);
-        }
+        }*/
         for(int lane=0; lane<N_LANES; lane++) {
             u32_t h0_of_lane = hash_u32[0 * N_LANES + lane]; // índice = word_index*4 + lane
             if(prefix_matches_aad2025(h0_of_lane)) {
