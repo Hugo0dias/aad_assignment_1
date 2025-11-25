@@ -123,20 +123,29 @@ static void build_msg_from_nonce(uint8_t msg56[56], const uint8_t nonce42[42]) {
 int main(int argc, char **argv) {
 
 
-  if (argc != 3) {
-    fprintf(stderr,"usage: %s server-ip port\n", argv[0]);
+  if (argc != 4) {
+    fprintf(stderr,"usage: %s server-ip port time_limit_seconds\n", argv[0]);
     return 1;
   }
+
+  double elapsed = 0.0;
+  double time_limit = atof(argv[3]);
+  if (time_limit <= 0) {
+      fprintf(stderr,"time_limit must be > 0\n");
+      return 1;
+  }
+
   const char *server_ip = argv[1];
   int port = atoi(argv[2]);
-  double time_limit = 0.0; // 0 = sem limite
-  unsigned long long n_attempts = 0ULL;
+  //double time_limit = 0.0; // 0 = sem limite
+  //unsigned long long n_attempts = 0ULL;
   uint64_t chunk_hashes = 0;
   uint64_t total_hashes = 0;
 
 
-  double elapsed = 0.0;
+  //double elapsed = 0.0;
   time_measurement();
+ 
 
   while (1) {
     int sock = connect_to_server(server_ip, port);
@@ -220,20 +229,34 @@ int main(int argc, char **argv) {
       chunk_hashes++;
       total_hashes++;
 
-      if (chunk_hashes >= 100000000ULL) {
-          time_measurement();               // atualiza timestamps
-          double dt = wall_time_delta();    // tempo passado desde última medição
-      
-          double hps = chunk_hashes / dt;   // hashes por segundo
-      
-          printf("[%.2f MH/s] — %llu tentativas\n",
-                 hps / 1e6,
-                 (unsigned long long)total_hashes);
-          fflush(stdout);
-          
-          chunk_hashes = 0;                 // reset para o próximo bloco
-      }
+      /* CHECK STATISTICS */
+      // time_measurement();
+      // double now = measured_wall_time[1].tv_sec +
+      //              measured_wall_time[1].tv_nsec * 1e-9;
+// 
+      // if (now - start_t >= time_limit) {
+      //     double hps = total_hashes / (now - start_t);
+      // 
+      //     printf("\n[STATS] %.0f s → total hashes = %llu (%.2f MH/s)\n",
+      //            time_limit,
+      //            (unsigned long long)total_hashes,
+      //            hps / 1e6);
+      //     fflush(stdout);
+      //     
+      //     start_t = now;   // reinicia contador para o próximo período
+      //     total_hashes = 0;
+      // }
 
+      time_measurement();                 // mede nova amostra
+      elapsed += wall_time_delta();       // acumula tempo decorrido
+
+      if (time_limit > 0.0 && elapsed >= time_limit) {
+            printf("\n=== Tempo limite atingido (%.2f / %.2f) ===\n", elapsed, time_limit);
+            printf("Tentativas totais: %lu\n", (unsigned long)chunk_hashes);
+            printf("Taxa média: %.2f Mhash/s\n", (chunk_hashes / elapsed) / 1e6);
+          exit(0);
+      }
+//      
 
     } /* end for counter */
 

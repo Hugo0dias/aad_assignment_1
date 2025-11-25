@@ -17,6 +17,7 @@ static inline int prefix_matches_aad2025(u32_t first_word) {
 
 int main(int argc, char *argv[])
 {
+    double elapsed = 0.0;
     double time_limit = 0.0;
     const char *name = NULL;
     unsigned long long thread_attempts[128] = {0}; // suporte até 128 threads
@@ -174,36 +175,43 @@ int main(int argc, char *argv[])
             }
 
             // Reporting e checagem de tempo
-            if(n_attempts % 100000000 == 0){
+            double now = omp_get_wtime();
+            double elapsed_local = now - start_time;
+
+            if (time_limit > 0.0 && elapsed_local >= time_limit) {
+                /* guarda contagens locais numa slot partilhada para agregação */
                 thread_attempts[myid] += n_attempts;
                 n_attempts = 0ULL;
-
+                        
+                /* sincronizar todas as threads: damos tempo para as outras escreverem a sua contagem */
+                #pragma omp barrier
+                        
+                /* apenas a master agrega e imprime */
                 #pragma omp master
                 {
                     n_attempts_total = 0ULL;
                     int nt = omp_get_num_threads();
                     for (int t = 0; t < nt; t++)
                         n_attempts_total += thread_attempts[t];
+                
+                    double final_elapsed = omp_get_wtime() - start_time;
+                    printf("=== Miner stopped ===\n");
+                    printf("Total attempts: %llu\n", n_attempts_total);
+                    printf("Elapsed time: %.2f seconds\n", final_elapsed);
+                    printf("Average rate: %.2f Mhashes/s\n", (double)n_attempts_total / final_elapsed / 1e6);
+                    printf("=== Tempo limite atingido ===\n");
                 }
-
-
-                #pragma omp master
-                {
-                    double now = omp_get_wtime();
-                    double elapsed = now - start_time;
-                    printf("Total attempts: %llu, Elapsed: %.2f sec\n", n_attempts_total, elapsed);
-
-                    if(time_limit > 0.0 && elapsed >= time_limit){
-                        printf("=== Miner stopped ===\n");
-                        printf("Total attempts: %llu\n", n_attempts_total);
-                        double elapsed = omp_get_wtime() - start_time;
-                        printf("Average rate: %.2f Mhashes/s\n",
-                                  (double)n_attempts_total / elapsed / 1e6);
-                        printf("=== Tempo limite atingido ===\n");
-                        exit(0);
-                    }
-                }
+            
+                /* garante que a master já fez a impressão antes de sair */
+                #pragma omp barrier
+            
+                /* pede a paragem a todas as threads */
+                //atomic_store(&stop_flag, 1);
+            
+                /* sai do laço (cada thread) */
+                break;
             }
+        
         }
     }
 

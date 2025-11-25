@@ -8,7 +8,7 @@
 #include "aad_vault.h"
 #include <immintrin.h>
 
-#define N_LANES 4
+#define N_LANES 16
 #define COIN_SIZE 56 
 
 static inline int prefix_matches_aad2025(u32_t first_word) {
@@ -24,7 +24,7 @@ static void print_bytes(const char *title, u08_t *p, int n) {
     if (n % 16) printf("\n");
 }
 
-static void print_v4si_words(const char *title, v4si *v, int n_words) {
+static void print_v4si_words(const char *title, v16si *v, int n_words) {
     printf("%s:\n", title);
     for (int w = 0; w < n_words; w++) {
         printf("W%02d: ", w);
@@ -36,6 +36,7 @@ static void print_v4si_words(const char *title, v4si *v, int n_words) {
 
 int main(int argc, char *argv[])
 {
+    #define BLOCK_SIZE 5
 
     unsigned long long base_nonce[N_LANES] = {0};  // offset base para cada lane
     unsigned long long lane_nonce[N_LANES] = {0};  // nonce relativo à lane
@@ -62,8 +63,8 @@ int main(int argc, char *argv[])
     unsigned long long n_attempts = 0ULL;
 
     u08_t msg[N_LANES * COIN_SIZE];
-    v4si coin[14];
-    v4si hash[5];
+    v16si coin[14];
+    v16si hash[5];
     u08_t coin_lane[COIN_SIZE];
     memset(msg, 0, sizeof(msg));
 
@@ -85,92 +86,62 @@ int main(int argc, char *argv[])
         msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
     }
 
-    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
-    int charset_len = (int)(sizeof(charset) - 1);
-
-    /* para cada lane, um odómetro com avail posições */
-    /* para cada lane, um odómetro com avail posições */
-    #define BLOCK_SIZE 1 // já tens
-    int avail = 42 - (int)name_len;
-    unsigned long long lane_block = BLOCK_SIZE; // cada lane processa N nonces por iteração
-
-    unsigned int indices[N_LANES][42];
-    memset(indices, 0, sizeof(indices));
-
     // ponteiros para nonces (bytes 12..53)
-    // ponteiros para os bytes 12..53
     u08_t *nonce[N_LANES];
-    for (int lane = 0; lane < N_LANES; lane++) {
-        nonce[lane] = &msg[lane * COIN_SIZE + 12 + name_len];
-    }
-
-    // inicializa cada lane com nonce diferente
-    for (int lane = 0; lane < N_LANES; lane++) {
-        for (int i = 0; i < avail; i++) {
-            nonce[lane][i] = 0x20 + lane;   // valores diferentes entre lanes
-        }
-    }
-
-
+    for(int lane=0; lane<N_LANES; lane++)
+        nonce[lane] = &msg[lane*COIN_SIZE + 12 + name_len];
     
     double elapsed = 0.0;
     time_measurement();
 
-    /* 1) inicializa base_nonce para escalonar as lanes (evita colisões) */
-    u08_t lane_start[N_LANES] = {0x20, 0x40, 0x60, 0x80}; // exemplo
-    for(int lane=0; lane<N_LANES; lane++){
-        nonce[lane][0] = lane_start[lane];
-        for(int i=1; i<avail; i++)
-            nonce[lane][i] = 0x20;
+    // inicializa offsets diferentes para cada lane
+    for (int lane = 0; lane < N_LANES; lane++) {
+        base_nonce[lane] = (unsigned long long)lane * (unsigned long long)BLOCK_SIZE;
+        lane_nonce[lane] = 0;
     }
 
-
-
-    #define MIN_CHAR 0x20   // início do intervalo
-    #define MAX_CHAR 0x9F   // fim do intervalo (128 valores = 0x20..0x9F). usa 0x7E se preferires 95
+    // opcional: limpa os bytes do nonce no buffer msg (para ter estado determinístico)
+    for (int lane = 0; lane < N_LANES; lane++) {
+        for (int i = 0; i < 42; i++)
+            nonce[lane][i] = 0;
+    }
 
     while(1) {
 
-        // --- parâmetros que podes ajustar ---
-        // --------------------------------------------------------------------
-        int base_idx = 0; // primeiro byte da lane
-        int odometer_start = 1; // após base, ou após name_len
-        int odometer_end = avail-1; // último byte disponível do odômetro
-
-        for(int lane=0; lane<N_LANES; lane++){
-            int carry = 1;  // sempre começamos incrementando
-            for(int i = odometer_end; i >= odometer_start && carry; i--){
-                nonce[lane][i] += carry;
-                if(nonce[lane][i] > 0x9F){
-                    nonce[lane][i] = 0x20; // wrap
-                    carry = 1; // carry continua
-                } else {
-                    carry = 0; // carry resolvido
-                }
-            }
-            // só incrementa base se odômetro completo deu wrap
-            if(carry){
-                nonce[lane][base_idx]++;
-                if(nonce[lane][base_idx] > 0x9F)
-                    nonce[lane][base_idx] = 0x20; // wrap da base
+        for (int lane = 0; lane < N_LANES; lane++) {
+            lane_nonce[lane]++;      // incrementa nonce relativo
+            if (lane_nonce[lane] >= BLOCK_SIZE) {
+                lane_nonce[lane] = 0;
+                base_nonce[lane] += (unsigned long long)BLOCK_SIZE * (unsigned long long)N_LANES; // avança bloco
             }
 
-            msg[lane*COIN_SIZE + 54] = '\n';   // byte 54
-            msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
+            unsigned long long final_nonce = base_nonce[lane] + lane_nonce[lane];
+
+            //printf("%llu", final_nonce);
+            //printf("\n");
+
+            // escreve final_nonce em little-endian nos 42 bytes do nonce,
+            // substitui 0x0A por 0x08 (backspace) se precisares
+            // limpa todos os 42 bytes do nonce
+            unsigned long long t = final_nonce;
+            for (int i = 0; i < 42 - name_len; i++) {
+                u08_t b = (u08_t)(t & 0xFFu);
+                t >>= 8;
+                if(b == 0x0A) b = 0x08;   // evita newline
+                msg[lane*COIN_SIZE + 12 + name_len + i] = b;
+            }
+            
+            // sobrescrever o q foi sobrescrito, ahahahahah
+            msg[lane*COIN_SIZE + 54] = '\n';
+            msg[lane*COIN_SIZE + 55] = 0x80;
         }
-
-
-
-
 
         /*for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
             printf("Tentativa %llu, Lane %d, nonce = ", trial, lane); 
             for (int i = 0; i < 42; i++) 
                 printf("%02X", nonce[lane][i]); 
-            printf("\n"); 
-        }
-
-    
+            printf("\n"); }
+        
         if (n_attempts < 4000) { 
             printf("\nTentativa %llu:\n", n_attempts + 1); 
             for (int lane = 0; lane < N_LANES; lane++) { 
@@ -198,7 +169,7 @@ int main(int argc, char *argv[])
 
 
         // chama a versão AVX da sha1 que produz 4 hashes em paralelo
-        sha1_avx((v4si*)coin, (v4si*)hash);
+        sha1_avx512f((v16si*)coin, (v16si*)hash);
 
         //print_v4si_words("SHA1 HASH (interleaved lanes)", hash, 5);
 

@@ -123,14 +123,6 @@ static int get_connection(int listen_fd, char ipbuf[32]) {
   return conn;
 }
 
-/* Simple coin dump */
-static void dump_coin_to_file(unsigned int *coin_words) {
-  FILE *f = fopen("coins.txt","a");
-  if (!f) return;
-  for (int i = 0; i < 14; ++i) fprintf(f,"%08X", coin_words[i]);
-  fprintf(f,"\n");
-  fclose(f);
-}
 
 int main(int argc, char **argv) {
   if (argc != 3) {
