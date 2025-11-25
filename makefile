@@ -60,13 +60,70 @@ sha1_miner: aad_sha1_cpu_miner.c
 	cc -O3 -march=native -funroll-loops -flto -fomit-frame-pointer -Wall aad_sha1_cpu_miner.c -o cpu_miner
 
 sha1_miner_avx: aad_sha1_cpu_miner_avx.c
-	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx.c -o cpu_miner_avx
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx.c -o cpu_miner_avx
+
+sha1_miner_avx2: aad_sha1_cpu_miner_avx2.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx2 -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx2.c -o cpu_miner_avx2
+
+sha1_miner_avx512: aad_sha1_cpu_miner_avx512.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx512.c -o cpu_miner_avx512
 
 sha1_miner_utf8: aad_sha1_cpu_miner_utf8.c
 	cc -O3 -march=native -funroll-loops -flto -fomit-frame-pointer -Wall aad_sha1_cpu_miner_utf8.c -o cpu_miner_utf8
 
 sha1_miner_avx_utf8: aad_sha1_cpu_miner_avx_utf8.c
-	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx_utf8.c -o cpu_miner_avx_utf8
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx_utf8.c -o cpu_miner_avx_utf8
+
+sha1_miner_avx2_utf8: aad_sha1_cpu_miner_avx2_utf8.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx2 -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx2_utf8.c -o cpu_miner_avx2_utf8
+
+sha1_miner_avx512_utf8: aad_sha1_cpu_miner_avx512_utf8.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native aad_sha1_cpu_miner_avx512_utf8.c -o cpu_miner_avx512_utf8
+
+
+#
+# test the CUSTOM_SHA1_CODE macro with Threads
+#
+
+
+sha1_miner_OMP: aad_sha1_cpu_miner_OMP.c
+	cc -O3 -march=native -funroll-loops -flto -fomit-frame-pointer -Wall -fopenmp aad_sha1_cpu_miner_OMP.c -o cpu_miner_OMP
+
+sha1_miner_avx_OMP: aad_sha1_cpu_miner_avx_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx_OMP.c -o cpu_miner_avx_OMP
+
+sha1_miner_avx2_OMP: aad_sha1_cpu_miner_avx2_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx2 -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx2_OMP.c -o cpu_miner_avx2_OMP
+
+sha1_miner_avx512_OMP: aad_sha1_cpu_miner_avx512_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx512_OMP.c -o cpu_miner_avx512_OMP
+
+sha1_miner_utf8_OMP: aad_sha1_cpu_miner_utf8_OMP.c
+	cc -O3 -march=native -funroll-loops -flto -fomit-frame-pointer -Wall -fopenmp aad_sha1_cpu_miner_utf8_OMP.c -o cpu_miner_utf8_OMP
+
+sha1_miner_avx_utf8_OMP: aad_sha1_cpu_miner_avx_utf8_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx_utf8_OMP.c -o cpu_miner_avx_utf8_OMP
+
+sha1_miner_avx2_utf8_OMP: aad_sha1_cpu_miner_avx2_utf8_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx2 -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx2_utf8_OMP.c -o cpu_miner_avx2_utf8_OMP
+
+sha1_miner_avx512_utf8_OMP: aad_sha1_cpu_miner_avx512_utf8_OMP.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx512_utf8_OMP.c -o cpu_miner_avx512_utf8_OMP
+
+
+#
+# Server and Client (Distributed Mining)
+#
+
+server: server\ and\ client/x_server.c server_client_common
+	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_server.c" -o "server and client/x_server.o"
+	gcc -O2 "server and client/x_server.o" "server and client/x_common.o" -o "server and client/server" -lm
+
+client: server\ and\ client/x_client.c server_client_common
+	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_client.c" -o "server and client/x_client.o"
+	gcc -O2 "server and client/x_client.o" "server and client/x_common.o" -o "server and client/client" -lm
+
+Server&Client_mining: server client
 
 #avx_correct: avx_correction.c
 #	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native avx_correction.c -o avx_correct
