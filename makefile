@@ -115,15 +115,15 @@ sha1_miner_avx512_utf8_OMP: aad_sha1_cpu_miner_avx512_utf8_OMP.c
 # Server and Client (Distributed Mining)
 #
 
-server: server\ and\ client/x_server.c server_client_common
+server: server\ and\ client/x_server.c
 	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_server.c" -o "server and client/x_server.o"
 	gcc -O2 "server and client/x_server.o" "server and client/x_common.o" -o "server and client/server" -lm
 
-client: server\ and\ client/x_client.c server_client_common
+client: server\ and\ client/x_client.c
 	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_client.c" -o "server and client/x_client.o"
 	gcc -O2 "server and client/x_client.o" "server and client/x_common.o" -o "server and client/client" -lm
 
-Server&Client_mining: server client
+Server_Client_mining: server client
 
 #avx_correct: avx_correction.c
 #	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native avx_correction.c -o avx_correct
