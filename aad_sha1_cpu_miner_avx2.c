@@ -63,8 +63,8 @@ int main(int argc, char *argv[])
     unsigned long long n_attempts = 0ULL;
 
     u08_t msg[N_LANES * COIN_SIZE];
-    v16si coin[14];
-    v16si hash[5];
+    v8si coin[14];
+    v8si hash[5];
     u08_t coin_lane[COIN_SIZE];
     memset(msg, 0, sizeof(msg));
 
