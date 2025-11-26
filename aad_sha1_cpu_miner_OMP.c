@@ -7,8 +7,8 @@
 #include "aad_vault.h"
 #include <omp.h>
 
-#define MIN_CHAR 0x20
-#define MAX_CHAR 0x9F
+#define MIN_CHAR 0x00
+#define MAX_CHAR 0xFF
 
 int main(int argc, char *argv[])
 {
@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 
         u32_t coin[14];
         u32_t hash[5];
-        u08_t msg[56];
+        u08_t *msg = (u08_t *)coin;
 
         // Inicializa template + nome
         for (int i = 0; i < 12; i++)
@@ -74,28 +74,20 @@ int main(int argc, char *argv[])
 
         while (1) {
             // Incremento sequencial do odômetro (mantendo lógica original)
-            int carry = 1;
-            for (int i = 53; i >= nonce_start && carry; i--) {
-                if (i == nonce_start) {
-                    // O primeiro byte é thread-ID: incrementa dentro da faixa
+            int carry = 1; // queremos incrementar pelo menos 1
+            for (int i = 53; i > nonce_start; i--) { // i > nonce_start para não tocar no thread-ID
+                if (carry) {
                     msg[i ^ 3]++;
-                    if (msg[i ^ 3] > end_byte)
-                        msg[i ^ 3] = (u08_t)start_byte; // volta ao início da faixa
-                    carry = 0; // não propaga carry
-                } else {
-                    if (++msg[i ^ 3] == '\n')  // ignora 0x0A
-                        ++msg[i ^ 3];
-                    if (msg[i ^ 3] > MAX_CHAR) {
-                        msg[i ^ 3] = MIN_CHAR;
+                
+                    if (msg[i ^ 3] == 0x0A)  // pula o \n
+                        msg[i ^ 3]++;
+                
+                    if (msg[i ^ 3] == 0x00) // overflow, propaga carry
                         carry = 1;
-                    } else {
+                    else
                         carry = 0;
-                    }
                 }
             }
-
-            
-            
 
             sha1(coin, hash);
             n_attempts++;

@@ -118,10 +118,12 @@ sha1_miner_avx512_utf8_OMP: aad_sha1_cpu_miner_avx512_utf8_OMP.c
 server: server\ and\ client/x_server.c
 	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_server.c" -o "server and client/x_server.o"
 	gcc -O2 "server and client/x_server.o" "server and client/x_common.o" -o "server and client/server" -lm
+	cp "server and client/server" ./server
 
 client: server\ and\ client/x_client.c
 	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_client.c" -o "server and client/x_client.o"
 	gcc -O2 "server and client/x_client.o" "server and client/x_common.o" -o "server and client/client" -lm
+	cp "server and client/client" ./client
 
 Server_Client_mining: server client
 
