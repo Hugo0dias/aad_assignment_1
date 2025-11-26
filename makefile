@@ -115,17 +115,25 @@ sha1_miner_avx512_utf8_OMP: aad_sha1_cpu_miner_avx512_utf8_OMP.c
 # Server and Client (Distributed Mining)
 #
 
-server: server\ and\ client/x_server.c
-	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_server.c" -o "server and client/x_server.o"
-	gcc -O2 "server and client/x_server.o" "server and client/x_common.o" -o "server and client/server" -lm
-	cp "server and client/server" ./server
+SERVER_CLIENT_DIR := server_and_client
 
-client: server\ and\ client/x_client.c
-	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "server and client/x_client.c" -o "server and client/x_client.o"
-	gcc -O2 "server and client/x_client.o" "server and client/x_common.o" -o "server and client/client" -lm
-	cp "server and client/client" ./client
+# Regra genérica para .o
+$(SERVER_CLIENT_DIR)/%.o: $(SERVER_CLIENT_DIR)/%.c
+	gcc -std=c11 -Wall -I. -O2 -D_POSIX_C_SOURCE=199309L -c "$<" -o "$@"
 
+# Server
+server: $(SERVER_CLIENT_DIR)/x_server.o $(SERVER_CLIENT_DIR)/x_common.o
+	gcc -O2 $(SERVER_CLIENT_DIR)/x_server.o $(SERVER_CLIENT_DIR)/x_common.o -o $(SERVER_CLIENT_DIR)/server -lm
+	cp $(SERVER_CLIENT_DIR)/server ./server
+
+# Client
+client: $(SERVER_CLIENT_DIR)/x_client.o $(SERVER_CLIENT_DIR)/x_common.o
+	gcc -O2 $(SERVER_CLIENT_DIR)/x_client.o $(SERVER_CLIENT_DIR)/x_common.o -o $(SERVER_CLIENT_DIR)/client -lm
+	cp $(SERVER_CLIENT_DIR)/client ./client
+
+# Alvo principal
 Server_Client_mining: server client
+
 
 #avx_correct: avx_correction.c
 #	gcc -O3 -march=native -funroll-loops -ffast-math -fomit-frame-pointer -mtune=native avx_correction.c -o avx_correct
