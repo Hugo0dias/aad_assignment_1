@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
 
     /* iterate range and check coins */
     uint8_t nonce42[42];
-    counter_to_nonce(start, nonce42);
+    counter_to_nonce_fast_init(start, nonce42);
     for (uint64_t counter = start; counter < end; ++counter) {
       // printf("testing counter %llu\r", (unsigned long long)counter); fflush(stdout);
       uint8_t msg56[56];
@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
            if they expect little-endian adapt this. Here we use bswap to convert
            the little-endian constructed w into big-endian layout. */
         coin_words[i] = bswap32_u32(w);   // sem byte-swap
-        // if (counter > 1000000000) {
+        // if (counter > 10) {
         //   printf("coin_words[%d] = %08X\n", i, coin_words[i]);
         //   printf("\n");
         // }

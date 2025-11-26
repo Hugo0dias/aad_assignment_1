@@ -11,8 +11,12 @@
 
 static void save_coin(u32_t coin[14])
 {
-# define VAULT_FILE_NAME  "deti_coins_v2_vault.txt"
+# define VAULT_FILE_NAME_RELATIVE  "../deti_coins_v2_vault.txt"
+# define VAULT_FILE_NAME_FALLBACK  "deti_coins_v2_vault.txt"
 # define MAX_SAVED_COINS  65536u
+  
+  // Tenta abrir no diretório pai primeiro, depois fallback local
+  const char *vault_file = VAULT_FILE_NAME_RELATIVE;
   static u08_t saved_coins[MAX_SAVED_COINS][4 + 55];
   static u32_t n_saved_coins = 0u;
   static u08_t deti_coin_v2_template[56u] =
@@ -44,13 +48,17 @@ static void save_coin(u32_t coin[14])
   {
     if(n_saved_coins > 0u)
     {
-      FILE *fp = fopen(VAULT_FILE_NAME,"a");
+      FILE *fp = fopen(vault_file,"a");
+      if(fp == NULL)  // Se falhar no pai, tenta fallback local
+        fp = fopen(VAULT_FILE_NAME_FALLBACK,"a");
+        
       if(fp == NULL                                                                                            ||
          fwrite((void *)&saved_coins[0][0],(size_t)(4 + 55),(size_t)n_saved_coins,fp) != (size_t)n_saved_coins ||
          fflush(fp) != 0                                                                                       ||
          fclose(fp) != 0)
       {
-        fprintf(stderr,"save_coin(): error while updating file \"" VAULT_FILE_NAME "\"\n");
+        fprintf(stderr,"save_coin(): error while updating file (tried \"%s\" and \"%s\")\n", 
+                vault_file, VAULT_FILE_NAME_FALLBACK);
         exit(1);
       }
     }
