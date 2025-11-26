@@ -37,9 +37,6 @@ static void print_v4si_words(const char *title, v4si *v, int n_words) {
 int main(int argc, char *argv[])
 {
 
-    unsigned long long base_nonce[N_LANES] = {0};  // offset base para cada lane
-    unsigned long long lane_nonce[N_LANES] = {0};  // nonce relativo à lane
-
     double time_limit = 0.0; // 0 = sem limite
     const char *name = NULL;
 
@@ -85,82 +82,56 @@ int main(int argc, char *argv[])
         msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
     }
 
-    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
-    int charset_len = (int)(sizeof(charset) - 1);
-
-    /* para cada lane, um odómetro com avail posições */
-    /* para cada lane, um odómetro com avail posições */
-    #define BLOCK_SIZE 1 // já tens
     int avail = 42 - (int)name_len;
-    unsigned long long lane_block = BLOCK_SIZE; // cada lane processa N nonces por iteração
+    if (avail < 0) avail = 0;
 
-    unsigned int indices[N_LANES][42];
-    memset(indices, 0, sizeof(indices));
-
-    // ponteiros para nonces (bytes 12..53)
-    // ponteiros para os bytes 12..53
-    u08_t *nonce[N_LANES];
-    for (int lane = 0; lane < N_LANES; lane++) {
-        nonce[lane] = &msg[lane * COIN_SIZE + 12 + name_len];
+    /* se não houver espaço para nonce, aborta (ou trata à tua maneira) */
+    if (avail == 0) {
+        fprintf(stderr, "Erro: name_len=%zu usa todos os 42 bytes de nonce. Nada para iterar.\n", name_len);
+        return 1;
     }
 
-    // inicializa cada lane com nonce diferente
+    /* configuração de intervalo (configurável) */
+    #define NONCE_LEN avail
+    #define MIN_CHAR 0x20
+    #define MAX_CHAR 0x7E
+
+    unsigned long long base_nonce[N_LANES] = {0};
+    unsigned long long lane_nonce[N_LANES] = {0};
+    const int total_values = MAX_CHAR - MIN_CHAR + 1;
+    const int values_per_lane = total_values / N_LANES;
+
+    u08_t nonce[N_LANES][NONCE_LEN]; // buffer do nonce por lane
+
+    // inicializa nonce
     for (int lane = 0; lane < N_LANES; lane++) {
-        for (int i = 0; i < avail; i++) {
-            nonce[lane][i] = 0x20 + lane;   // valores diferentes entre lanes
-        }
+        for (int i = 0; i < NONCE_LEN; i++)
+            nonce[lane][i] = MIN_CHAR + lane * values_per_lane; // cada lane começa na sua fatia
     }
 
 
-    
     double elapsed = 0.0;
     time_measurement();
 
-    /* 1) inicializa base_nonce para escalonar as lanes (evita colisões) */
-    u08_t lane_start[N_LANES] = {0x20, 0x40, 0x60, 0x80}; // exemplo
-    for(int lane=0; lane<N_LANES; lane++){
-        nonce[lane][0] = lane_start[lane];
-        for(int i=1; i<avail; i++)
-            nonce[lane][i] = 0x20;
-    }
-
-
-
-    #define MIN_CHAR 0x20   // início do intervalo
-    #define MAX_CHAR 0x9F   // fim do intervalo (128 valores = 0x20..0x9F). usa 0x7E se preferires 95
-
     while(1) {
 
-        // --- parâmetros que podes ajustar ---
-        // --------------------------------------------------------------------
-        int base_idx = 0; // primeiro byte da lane
-        int odometer_start = 1; // após base, ou após name_len
-        int odometer_end = avail-1; // último byte disponível do odômetro
-
-        for(int lane=0; lane<N_LANES; lane++){
-            int carry = 1;  // sempre começamos incrementando
-            for(int i = odometer_end; i >= odometer_start && carry; i--){
-                nonce[lane][i] += carry;
-                if(nonce[lane][i] > 0x9F){
-                    nonce[lane][i] = 0x20; // wrap
-                    carry = 1; // carry continua
+        for (int lane = 0; lane < N_LANES; lane++) {
+            unsigned int carry = 1;
+            for (int i = NONCE_LEN-1; i >= 0 && carry; i--) {
+                nonce[lane][i]++;
+                if (nonce[lane][i] > MAX_CHAR) {  // vai até o MAX_CHAR global
+                    nonce[lane][i] = MIN_CHAR;    // reinicia
+                    carry = 1;
                 } else {
-                    carry = 0; // carry resolvido
+                    carry = 0;
                 }
             }
-            // só incrementa base se odômetro completo deu wrap
-            if(carry){
-                nonce[lane][base_idx]++;
-                if(nonce[lane][base_idx] > 0x9F)
-                    nonce[lane][base_idx] = 0x20; // wrap da base
-            }
+            memcpy(&msg[lane*COIN_SIZE + 12 + name_len], nonce[lane], NONCE_LEN);
 
-            msg[lane*COIN_SIZE + 54] = '\n';   // byte 54
-            msg[lane*COIN_SIZE + 55] = 0x80;   // byte 55
+            msg[lane*COIN_SIZE + 54] = '\n';
+            msg[lane*COIN_SIZE + 55] = 0x80;
         }
-
-
-
+        
 
 
         /*for (int lane = 0; lane < N_LANES; lane++) { unsigned long long trial = n_attempts + lane + 1; 
