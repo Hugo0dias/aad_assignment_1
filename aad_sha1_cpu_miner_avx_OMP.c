@@ -125,28 +125,6 @@ int main(int argc, char *argv[])
             /* chama AVX sha1 (mesmo nome e assinatura que tens) */
             sha1_avx((v4si*)coin, (v4si*)hash);
 
-
-            #pragma omp critical
-            {
-                //printf("Thread %d: Trying nonce bytes:\n", tid);
-                for (int lane = 0; lane < N_LANES; lane++) {
-                    //printf(" Lane %2d: ", lane);
-                    int count = 0;
-                    for (int i = 0; i < 42; i++) {
-                        //printf("%02X ", msg[12 + lane*COIN_SIZE + (name_len + i) ^ 3]);
-                        if (target_nonce[i] == msg[12 + lane*COIN_SIZE + (name_len + i) ^ 3]) {
-                            // printf("%d", count);
-                            count++;
-                            
-                            if (count == 42) {
-                                printf("\033[1;32m[tid %d] Found target nonce byte! (iter=%llu lane=%d)\033[0m\n", tid, iter, lane);
-                            }
-                        }
-                    }
-                    //printf("\n");
-                }
-            }
-
             /* verifica resultados por lane, igual ao teu código */
             u32_t *hash_u32 = (u32_t*)hash;
             for (int lane = 0; lane < N_LANES; lane++) {
