@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
         // Calcula faixa exclusiva do primeiro byte do nonce para cada thread
         int range_size = (MAX_CHAR - MIN_CHAR + 1) / num_threads;
         int start_byte = MIN_CHAR + tid * range_size;
-        int end_byte = (tid == num_threads - 1) ? MAX_CHAR : start_byte + range_size - 1;
+        //int end_byte = (tid == num_threads - 1) ? MAX_CHAR : start_byte + range_size - 1;
 
         // Inicializa todo o nonce (bytes 12+name_len .. 53) com o mínimo da faixa
         int nonce_start = 12 + name_len;
