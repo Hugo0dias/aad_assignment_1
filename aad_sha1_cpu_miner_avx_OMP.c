@@ -43,6 +43,7 @@ int main(int argc, char *argv[])
 
     unsigned long long total_attempts = 0ULL;
     double start_time = omp_get_wtime();
+    static const unsigned long long CHECK_FREQ = 1ULL << 10; /* check tempo a cada 1024 iterações */
 
     /* time measurement helpers (usa as tuas funções existentes) */
     time_measurement();
@@ -78,10 +79,6 @@ int main(int argc, char *argv[])
 
         /* iter conta quantos blocos/iterações já fez a thread */
         unsigned long long iter = 0ULL;
-        u08_t target_nonce[42] = {
-            0x00, 0x00, 0xF2, 0xC2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x0A
-        };
-
 
         /* loop principal por thread */
         while (1) {
@@ -148,37 +145,38 @@ int main(int argc, char *argv[])
             iter++;
 
             /* time check (cada thread usa o mesmo start_time) */
-            static const unsigned long long CHECK_FREQ = 1ULL << 15; /* verifica tempo periodicamente */
             if ((n_attempts & (CHECK_FREQ - 1)) == 0) {
                 double now = omp_get_wtime();
                 double global_elapsed = now - start_time;
                 if (time_limit > 0.0 && global_elapsed >= time_limit) {
-                    /* acumula e imprime (apenas a master) */
+                    /* acumula tentativas locais */
                     #pragma omp critical
                     {
                         total_attempts += n_attempts;
                     }
+                    /* sincroniza TODAS as threads antes de ler total_attempts */
                     #pragma omp barrier
+                    
+                    /* apenas a master lê e imprime (sem race) */
                     #pragma omp master
                     {
-                        unsigned long long sum = total_attempts;
                         double final_elapsed = omp_get_wtime() - start_time;
                         printf("\n=== Miner stopped ===\n");
-                        printf("Total attempts (aprox): %llu\n", sum);
+                        printf("Total attempts: %llu\n", total_attempts);
                         printf("Elapsed time: %.2f seconds\n", final_elapsed);
-                        printf("Average rate: %.2f Mhashes/s\n", (double)sum / final_elapsed / 1e6);
+                        printf("Average rate: %.2f Mhashes/s\n", (double)total_attempts / final_elapsed / 1e6);
                         printf("=== Tempo limite atingido ===\n");
                     }
+                    /* sincroniza novamente antes de sair */
+                    #pragma omp barrier
                     break;
                 }
             }
         } /* end while thread */
 
-        /* antes de terminar, acumula o que cada thread fez (protege) */
-        #pragma omp critical
-        {
-            total_attempts += n_attempts;
-        }
+        /* antes de terminar, acumula o que cada thread fez */
+        #pragma omp atomic
+        total_attempts += n_attempts;
     } /* fim parallel */
 
     return 0;
