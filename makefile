@@ -159,3 +159,9 @@ deti_miner.o: deti_miner.c aad_data_types.h aad_utilities.h aad_vault.h aad_cuda
 deti_miner_kernel.cubin: deti_miner_kernel.cu aad_sha1.h aad_data_types.h
 	nvcc -arch=$(CUDA_ARCH) --compiler-options -O2,-Wall -I$(CUDA_DIR)/include --cubin $< -o $@
 
+
+
+# Extras Compile
+
+sha1_miner_AVX512_Extra_OMP: aad_sha1_cpu_miner_avx512_Extra.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx512_Extra.c -o cpu_miner_AVX512_Extra_OMP
