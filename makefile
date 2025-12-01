@@ -165,3 +165,6 @@ deti_miner_kernel.cubin: deti_miner_kernel.cu aad_sha1.h aad_data_types.h
 
 sha1_miner_AVX512_Extra_OMP: aad_sha1_cpu_miner_avx512_Extra.c
 	gcc -O3 -march=native -funroll-loops -ffast-math -mavx512f -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx512_Extra.c -o cpu_miner_AVX512_Extra_OMP
+
+sha1_miner_AVX2_Extra_OMP: aad_sha1_cpu_miner_avx2_Extra.c
+	gcc -O3 -march=native -funroll-loops -ffast-math -mavx2 -fomit-frame-pointer -mtune=native -fopenmp aad_sha1_cpu_miner_avx2_Extra.c -o cpu_miner_AVX2_Extra_OMP
